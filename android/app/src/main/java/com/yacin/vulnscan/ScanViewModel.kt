@@ -41,6 +41,16 @@ class ScanViewModel : ViewModel() {
         _state.value = _state.value.copy(selectedChecks = current)
     }
 
+    fun selectAllChecks() {
+        _state.value = _state.value.copy(
+            selectedChecks = Scanner.allChecks.map { it.id }.toSet()
+        )
+    }
+
+    fun clearChecks() {
+        _state.value = _state.value.copy(selectedChecks = emptySet())
+    }
+
     fun startScan() {
         val s = _state.value
         if (s.target.isBlank()) {
