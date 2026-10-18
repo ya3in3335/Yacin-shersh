@@ -7,18 +7,18 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 
 private val StrykerColors = darkColorScheme(
-    primary = ElectricCyan,
-    onPrimary = DeepNavy,
-    secondary = EmeraldGreen,
-    onSecondary = DeepNavy,
-    tertiary = CyanDim,
-    background = DeepNavy,
+    primary = AmberGold,
+    onPrimary = NoirBlack,
+    secondary = TealGlow,
+    onSecondary = NoirBlack,
+    tertiary = AmberDim,
+    background = NoirBlack,
     onBackground = TextPrimary,
-    surface = PanelNavy,
+    surface = NoirPanel,
     onSurface = TextPrimary,
-    surfaceVariant = SurfaceNavy,
+    surfaceVariant = NoirSurface,
     onSurfaceVariant = TextSecondary,
-    outline = OutlineNavy,
+    outline = NoirOutline,
     error = SevCritical,
     onError = TextPrimary
 )

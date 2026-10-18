@@ -2,22 +2,23 @@ package com.strykerx.lab.core.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Dark cybersecurity palette
-val DeepNavy = Color(0xFF060A14)
-val PanelNavy = Color(0xFF0D1626)
-val SurfaceNavy = Color(0xFF111D33)
-val OutlineNavy = Color(0xFF24344F)
+// --- Noir detective theme ---
+// Deep charcoal base with warm amber/gold accent and a teal secondary.
+val NoirBlack = Color(0xFF0E0E12)      // background
+val NoirPanel = Color(0xFF17171D)      // cards
+val NoirSurface = Color(0xFF1F1F27)    // raised surfaces
+val NoirOutline = Color(0xFF343440)
 
-val ElectricCyan = Color(0xFF17E6D6)
-val EmeraldGreen = Color(0xFF27E07A)
-val CyanDim = Color(0xFF0FA8A0)
+val AmberGold = Color(0xFFF5B43C)      // primary accent
+val AmberDim = Color(0xFFC8912E)
+val TealGlow = Color(0xFF35D0C0)       // secondary accent
 
-val TextPrimary = Color(0xFFE6F1FF)
-val TextSecondary = Color(0xFF8FA6C4)
+val TextPrimary = Color(0xFFF2ECDF)    // warm off-white
+val TextSecondary = Color(0xFFA69C86)
 
-// Severity colors
-val SevCritical = Color(0xFFFF3B5C)
-val SevHigh = Color(0xFFFF6B3D)
-val SevMedium = Color(0xFFFFB020)
-val SevLow = Color(0xFF3DA5FF)
-val SevInfo = Color(0xFF7E8BA3)
+// Severity colors (tuned for the noir background)
+val SevCritical = Color(0xFFFF4D5E)
+val SevHigh = Color(0xFFFF7A33)
+val SevMedium = Color(0xFFF5B43C)
+val SevLow = Color(0xFF4FB0FF)
+val SevInfo = Color(0xFF9A8F79)
