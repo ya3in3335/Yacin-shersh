@@ -1,10 +1,12 @@
 package com.strykerx.lab.scanner.apk
 
 import android.content.Context
+import android.content.pm.ActivityInfo
 import android.content.pm.ApplicationInfo
-import android.content.pm.ComponentInfo
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
+import android.content.pm.ProviderInfo
+import android.content.pm.ServiceInfo
 import com.strykerx.lab.core.common.Confidence
 import com.strykerx.lab.core.common.Severity
 import com.strykerx.lab.core.common.VerificationStatus
@@ -144,27 +146,30 @@ object ApkAnalyzer {
     }
 
     private fun componentFindings(info: PackageInfo, pkg: String, out: MutableList<WebFinding>): Int {
-        val groups = listOf(
-            "activity" to info.activities, "service" to info.services,
-            "receiver" to info.receivers, "provider" to info.providers
-        )
-        var count = 0
+        val activities: Array<ActivityInfo> = info.activities ?: emptyArray()
+        val services: Array<ServiceInfo> = info.services ?: emptyArray()
+        val receivers: Array<ActivityInfo> = info.receivers ?: emptyArray()
+        val providers: Array<ProviderInfo> = info.providers ?: emptyArray()
         var reported = 0
-        for ((kind, arr) in groups) {
-            val comps: Array<out ComponentInfo> = arr ?: continue
-            for (c in comps) {
-                count++
-                if (c.exported && c.permission == null && reported < MAX_COMPONENT_FINDINGS) {
-                    reported++
-                    val sev = if (kind == "provider") Severity.HIGH else Severity.MEDIUM
-                    out += f("apk-exported-${c.name}", "Exported $kind without permission: ${c.name.substringAfterLast('.')}",
-                        pkg, "Component export analysis", "${c.name} is exported and has no permission guard",
-                        sev, VerificationStatus.POTENTIAL,
-                        "Set android:exported=false, or protect it with a signature-level permission.")
-                }
-            }
+
+        fun report(name: String, kind: String, sev: Severity) {
+            if (reported >= MAX_COMPONENT_FINDINGS) return
+            reported++
+            out += f(
+                "apk-exported-$name", "Exported $kind without permission: ${name.substringAfterLast('.')}",
+                pkg, "Component export analysis", "$name is exported and has no permission guard",
+                sev, VerificationStatus.POTENTIAL,
+                "Set android:exported=false, or protect it with a signature-level permission."
+            )
         }
-        return count
+
+        for (a in activities) if (a.exported && a.permission == null) report(a.name, "activity", Severity.MEDIUM)
+        for (s in services) if (s.exported && s.permission == null) report(s.name, "service", Severity.MEDIUM)
+        for (r in receivers) if (r.exported && r.permission == null) report(r.name, "receiver", Severity.MEDIUM)
+        for (p in providers) if (p.exported && p.readPermission == null && p.writePermission == null) {
+            report(p.name, "provider", Severity.HIGH)
+        }
+        return activities.size + services.size + receivers.size + providers.size
     }
 
     private fun dexFindings(apk: File, pkg: String, out: MutableList<WebFinding>) {
