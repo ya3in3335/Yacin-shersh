@@ -182,6 +182,31 @@ object Strings {
             AppLanguage.TR to "Bulgu yok. Bir tarama çalıştırın.",
             AppLanguage.RU to "Находок нет. Запустите скан."
         ),
+        "score_title" to mapOf(
+            AppLanguage.EN to "Security Strength", AppLanguage.AR to "قوة الأمان",
+            AppLanguage.FR to "Niveau de sécurité", AppLanguage.ES to "Nivel de seguridad",
+            AppLanguage.DE to "Sicherheitsstärke", AppLanguage.TR to "Güvenlik Gücü", AppLanguage.RU to "Уровень безопасности"
+        ),
+        "score_excellent" to mapOf(
+            AppLanguage.EN to "Excellent", AppLanguage.AR to "ممتاز", AppLanguage.FR to "Excellent",
+            AppLanguage.ES to "Excelente", AppLanguage.DE to "Ausgezeichnet", AppLanguage.TR to "Mükemmel", AppLanguage.RU to "Отлично"
+        ),
+        "score_verygood" to mapOf(
+            AppLanguage.EN to "Very good", AppLanguage.AR to "جيد جداً", AppLanguage.FR to "Très bon",
+            AppLanguage.ES to "Muy bueno", AppLanguage.DE to "Sehr gut", AppLanguage.TR to "Çok iyi", AppLanguage.RU to "Очень хорошо"
+        ),
+        "score_good" to mapOf(
+            AppLanguage.EN to "Good", AppLanguage.AR to "جيد", AppLanguage.FR to "Bon",
+            AppLanguage.ES to "Bueno", AppLanguage.DE to "Gut", AppLanguage.TR to "İyi", AppLanguage.RU to "Хорошо"
+        ),
+        "score_needswork" to mapOf(
+            AppLanguage.EN to "Needs work", AppLanguage.AR to "يحتاج تحسين", AppLanguage.FR to "À améliorer",
+            AppLanguage.ES to "Mejorable", AppLanguage.DE to "Verbesserungswürdig", AppLanguage.TR to "Geliştirilmeli", AppLanguage.RU to "Требует доработки"
+        ),
+        "score_atrisk" to mapOf(
+            AppLanguage.EN to "At risk", AppLanguage.AR to "خطير", AppLanguage.FR to "À risque",
+            AppLanguage.ES to "En riesgo", AppLanguage.DE to "Gefährdet", AppLanguage.TR to "Riskli", AppLanguage.RU to "Под угрозой"
+        ),
         "settings_title" to mapOf(
             AppLanguage.EN to "Settings", AppLanguage.AR to "الإعدادات", AppLanguage.FR to "Paramètres",
             AppLanguage.ES to "Ajustes", AppLanguage.DE to "Einstellungen", AppLanguage.TR to "Ayarlar", AppLanguage.RU to "Настройки"

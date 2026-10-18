@@ -26,16 +26,23 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.strykerx.lab.core.common.SecurityScore
+import com.strykerx.lab.core.database.FindingEntity
+import com.strykerx.lab.core.i18n.AppLanguage
 import com.strykerx.lab.core.i18n.LocalAppLanguage
 import com.strykerx.lab.core.i18n.t
 import com.strykerx.lab.core.ui.components.FindingCard
 import com.strykerx.lab.core.ui.components.ScreenHeader
+import com.strykerx.lab.core.ui.theme.SevCritical
+import com.strykerx.lab.core.ui.theme.SevMedium
+import com.strykerx.lab.core.ui.theme.TealGlow
 import com.strykerx.lab.feature.reports.ReportBuilder
 import com.strykerx.lab.feature.reports.ReportSharer
 import com.strykerx.lab.di.StrykerViewModelFactory
@@ -104,6 +111,10 @@ fun WebScannerScreen(factory: StrykerViewModelFactory) {
             Text(it, color = MaterialTheme.colorScheme.secondary, fontSize = 13.sp)
         }
 
+        if (!state.running && state.sessionId != null) {
+            SecurityScoreCard(state.findings, lang)
+        }
+
         if (state.findings.isNotEmpty()) {
             Button(
                 onClick = {
@@ -148,5 +159,35 @@ private fun CheckRow(label: String, checked: Boolean, onChange: (Boolean) -> Uni
     Row(verticalAlignment = Alignment.CenterVertically) {
         Checkbox(checked = checked, onCheckedChange = onChange)
         Text(label, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+    }
+}
+
+@Composable
+private fun SecurityScoreCard(findings: List<FindingEntity>, lang: AppLanguage) {
+    val result = SecurityScore.fromFindings(findings)
+    val color = when {
+        result.percent >= 50 -> TealGlow
+        result.percent >= 0 -> SevMedium
+        else -> SevCritical
+    }
+    val sign = if (result.percent > 0) "+" else ""
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text("$sign${result.percent}%", color = color,
+                fontWeight = FontWeight.Bold, fontSize = 34.sp)
+            Column {
+                Text(t("score_title", lang), color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp)
+                Text(t(result.gradeKey, lang), color = color,
+                    fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            }
+        }
     }
 }
