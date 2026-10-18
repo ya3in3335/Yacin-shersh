@@ -61,10 +61,21 @@ class ExposureCheck : WebCheck {
 
     override fun run(http: SafeHttp, baseUrl: String): List<WebFinding> {
         val out = mutableListOf<WebFinding>()
+
+        // Establish a catch-all baseline: a random path that cannot exist. If the
+        // server answers it with 200, it serves the same page for everything (SPA
+        // fallback), so a 200 on a probed path proves nothing. We record that page's
+        // signature and skip any probe response that matches it.
+        val baseline = runCatching {
+            val randomPath = "/cherlogons-404-probe-" + System.nanoTime().toString(36)
+            http.get(baseUrl + randomPath)?.let(::signatureOf)
+        }.getOrNull()
+
         for ((path, probe) in paths) {
             val url = baseUrl + path
             val resp = http.get(url) ?: continue
             if (resp.code != 200) continue
+            if (looksLikeCatchAll(baseline, signatureOf(resp))) continue // SPA fallback, not a real file
             val body = resp.body.take(4096)
             if (probe.signatures.none { body.contains(it) }) continue
             val informational = probe.sev == Severity.INFO
@@ -72,19 +83,38 @@ class ExposureCheck : WebCheck {
                 code = "exposure-$path",
                 title = probe.title,
                 affected = url,
-                detectionMethod = "Authorized path probe (GET)",
+                detectionMethod = "Authorized path probe (GET), catch-all filtered",
                 evidence = if (informational) body.take(200)
-                else "HTTP 200 with content signature at $path",
+                else "HTTP 200 with content signature at $path (differs from the catch-all baseline)",
                 severity = probe.sev,
                 confidence = Confidence.HIGH,
                 // A reachable sensitive file with a matching signature is directly
                 // observed and reproducible -> CONFIRMED (informational items stay INFO).
                 verification = if (informational)
                     VerificationStatus.INFORMATIONAL else VerificationStatus.CONFIRMED,
-                reproduction = "Send GET $url and verify a 200 response containing the signature.",
+                reproduction = "Send GET $url, verify 200 with the signature, and that it differs from a random non-existent path.",
                 remediation = "Remove the file from the web root or block external access to it."
             )
         }
         return out
+    }
+
+    /** Signature of a response used to recognize an SPA catch-all page. */
+    data class PageSignature(val code: Int, val length: Int, val prefix: String)
+
+    companion object {
+        fun signatureOf(resp: com.strykerx.lab.core.network.HttpResult): PageSignature =
+            PageSignature(resp.code, resp.body.length, resp.body.take(512))
+
+        /**
+         * True when [candidate] is indistinguishable from the catch-all [baseline]:
+         * both 200, same body length and same leading bytes. Pure and unit-tested.
+         */
+        fun looksLikeCatchAll(baseline: PageSignature?, candidate: PageSignature): Boolean =
+            baseline != null &&
+                baseline.code == 200 &&
+                candidate.code == 200 &&
+                candidate.length == baseline.length &&
+                candidate.prefix == baseline.prefix
     }
 }
