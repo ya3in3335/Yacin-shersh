@@ -3,7 +3,10 @@
 Honest status as of Phase A. Nothing here is hidden behind a polished UI.
 
 ## Not yet implemented (planned by phase)
-- **Website Scanner (Phase B)** — screen is a placeholder; no scanning yet.
+- **Website Scanner (Phase B)** — FUNCTIONAL (merged from VulnScan): TLS, security headers,
+  exposed files, fingerprint; scope/authorization gate; Room persistence; report + AI share.
+  Still pending: opt-in active tests (reflected-input/XSS, error-based SQLi) on approved
+  targets; CORS deep-dive; true pause/resume (pause currently aborts gracefully).
 - **APK Analyzer (Phase C)** — no APK import/parsing yet.
 - **API Inspector + Network Inspector (Phase D)** — placeholders only.
 - **Reports (Phase E)** — no PDF/HTML/JSON/Markdown/HackerOne export yet.
@@ -22,7 +25,17 @@ Honest status as of Phase A. Nothing here is hidden behind a polished UI.
 - APK/network features (Phase C/D) will be bounded by Android scoped-storage and network
   permission restrictions.
 
+## Web scanner caveats
+- The TLS protocol/cert probe opens a direct socket with the platform default trust manager;
+  it reports negotiated protocol and expiry, not a full cipher-suite audit.
+- `SafeHttp` blocks private/reserved/metadata addresses via a custom DNS and re-validates
+  redirect hops; it is not a substitute for a network egress firewall.
+- Only non-destructive, passive/configuration checks run today. No active injection payloads
+  are sent (those are deferred and will be strictly opt-in and scope-locked).
+
 ## Safety posture
-- Authorization-first by design: active tests (Phase B+) will be opt-in, scope-locked, and
-  rate-limited. No exploitation, credential attacks, destructive payloads, or mass scanning.
+- Authorization-first by design: a URL is not permission. Scans require an explicit
+  authorization declaration, are locked to the target/allow-listed hosts, and are
+  rate-limited by the resource profile. No exploitation, credential attacks, destructive
+  payloads, or mass scanning.
 - A finding is never marked **Confirmed** without reproducible evidence.

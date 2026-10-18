@@ -1,6 +1,7 @@
 package com.strykerx.lab.core.common
 
 import com.strykerx.lab.core.database.FindingDao
+import com.strykerx.lab.core.database.FindingEntity
 import com.strykerx.lab.core.database.ScanSessionDao
 import com.strykerx.lab.core.database.ScanSessionEntity
 import kotlinx.coroutines.flow.Flow
@@ -20,6 +21,11 @@ class StrykerRepository(
         findingDao.allSeverities().map { names ->
             SeverityStats.of(names.map { Severity.from(it) })
         }
+
+    val allFindings: Flow<List<FindingEntity>> = findingDao.all()
+
+    fun findingsForSession(sessionId: String): Flow<List<FindingEntity>> =
+        findingDao.forSession(sessionId)
 
     fun recentSessions(limit: Int = 10): Flow<List<ScanSessionEntity>> =
         scanSessionDao.recent(limit)

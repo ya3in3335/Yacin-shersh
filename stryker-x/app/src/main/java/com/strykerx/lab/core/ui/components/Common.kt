@@ -58,6 +58,45 @@ fun StatCard(
     }
 }
 
+@Composable
+fun FindingCard(
+    severity: String,
+    title: String,
+    check: String,
+    affected: String,
+    evidence: String,
+    verification: String,
+    remediation: String
+) {
+    val sev = com.strykerx.lab.core.common.Severity.from(severity)
+    val color = when (sev) {
+        com.strykerx.lab.core.common.Severity.CRITICAL -> com.strykerx.lab.core.ui.theme.SevCritical
+        com.strykerx.lab.core.common.Severity.HIGH -> com.strykerx.lab.core.ui.theme.SevHigh
+        com.strykerx.lab.core.common.Severity.MEDIUM -> com.strykerx.lab.core.ui.theme.SevMedium
+        com.strykerx.lab.core.common.Severity.LOW -> com.strykerx.lab.core.ui.theme.SevLow
+        com.strykerx.lab.core.common.Severity.INFO -> com.strykerx.lab.core.ui.theme.SevInfo
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Text("[${sev.label}] $title", color = color, fontWeight = FontWeight.Bold)
+            Text("$check  •  $verification", color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp)
+            Text(affected, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+            if (evidence.isNotBlank()) {
+                Text("Evidence: $evidence", color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+            }
+            if (remediation.isNotBlank()) {
+                Text("Fix: $remediation", color = MaterialTheme.colorScheme.secondary,
+                    fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+            }
+        }
+    }
+}
+
 /** Placeholder for screens delivered in later phases. Honest, not fake content. */
 @Composable
 fun ComingSoonScreen(title: String, phase: String) {

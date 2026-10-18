@@ -65,10 +65,10 @@ fun StrykerNavHost(container: AppContainer) {
                     onNavigate = { navController.navigate(it.route) { launchSingleTop = true } }
                 )
             }
-            composable(Destination.WEB_SCANNER.route) { WebScannerScreen() }
+            composable(Destination.WEB_SCANNER.route) { WebScannerScreen(factory = factory) }
             composable(Destination.APK_ANALYZER.route) { ApkAnalyzerScreen() }
             composable(Destination.NETWORK_INSPECTOR.route) { NetworkInspectorScreen() }
-            composable(Destination.FINDINGS.route) { FindingsScreen() }
+            composable(Destination.FINDINGS.route) { FindingsScreen(factory = factory) }
             composable(Destination.API_INSPECTOR.route) { ApiInspectorScreen() }
             composable(Destination.REPORTS.route) { ReportsScreen() }
             composable(Destination.SETTINGS.route) { SettingsScreen(factory = factory) }
