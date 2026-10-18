@@ -20,8 +20,12 @@ import com.strykerx.lab.scanner.web.CorsCheck
 import com.strykerx.lab.scanner.web.ExposureCheck
 import com.strykerx.lab.scanner.web.FingerprintCheck
 import com.strykerx.lab.scanner.web.HeaderCheck
+import com.strykerx.lab.scanner.web.HttpsRedirectCheck
 import com.strykerx.lab.scanner.web.InjectionCheck
+import com.strykerx.lab.scanner.web.OpenRedirectCheck
 import com.strykerx.lab.scanner.web.PassiveReconCheck
+import com.strykerx.lab.scanner.web.RobotsReconCheck
+import com.strykerx.lab.scanner.web.SriCheck
 import com.strykerx.lab.scanner.web.ScopePolicy
 import com.strykerx.lab.scanner.web.ScopeResult
 import com.strykerx.lab.scanner.web.ScopeValidator
@@ -67,13 +71,19 @@ class WebScanOrchestrator(
     /** Passive + configuration checks always run; injection is opt-in and scope-gated. */
     private fun checksFor(policy: ScopePolicy): List<WebCheck> = buildList {
         add(TlsCheck())
+        add(HttpsRedirectCheck())
         add(HeaderCheck())
         add(ContentSecurityCheck())
         add(CorsCheck())
         add(FingerprintCheck())
+        add(SriCheck())
         add(PassiveReconCheck())
+        add(RobotsReconCheck())
         add(ExposureCheck())
-        if (policy.allowActiveTests) add(InjectionCheck())
+        if (policy.allowActiveTests) {
+            add(InjectionCheck())
+            add(OpenRedirectCheck())
+        }
     }
 
     suspend fun run(
