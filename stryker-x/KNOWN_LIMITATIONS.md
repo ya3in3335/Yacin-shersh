@@ -25,6 +25,15 @@ Honest status as of Phase A. Nothing here is hidden behind a polished UI.
 - APK/network features (Phase C/D) will be bounded by Android scoped-storage and network
   permission restrictions.
 
+## Deliberate design decisions
+- **No runtime download/execution of third-party tools.** The app never fetches
+  and runs external binaries/scripts (e.g. sqlmap) on the device: that is a
+  supply-chain risk, violates app-store policy, and such tools' full modes
+  perform data extraction / DB takeover (destructive). SQLi detection is
+  implemented natively instead (error-based across many DBMS + boolean-based
+  blind differential), detection-only, opt-in, scope-locked. No time-based
+  (sleep) payloads are sent, to avoid loading the target.
+
 ## Web scanner caveats
 - The TLS protocol/cert probe opens a direct socket with the platform default trust manager;
   it reports negotiated protocol and expiry, not a full cipher-suite audit.
