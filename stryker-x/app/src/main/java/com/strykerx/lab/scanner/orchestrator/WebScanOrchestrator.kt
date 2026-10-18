@@ -16,6 +16,7 @@ import com.strykerx.lab.core.resources.ResourceMonitor
 import com.strykerx.lab.core.resources.ResourceProfile
 import com.strykerx.lab.core.resources.evaluatePause
 import com.strykerx.lab.scanner.web.ContentSecurityCheck
+import com.strykerx.lab.scanner.web.CorrelationEngine
 import com.strykerx.lab.scanner.web.CorsCheck
 import com.strykerx.lab.scanner.web.ExposureCheck
 import com.strykerx.lab.scanner.web.FingerprintCheck
@@ -30,7 +31,10 @@ import com.strykerx.lab.scanner.web.ScopePolicy
 import com.strykerx.lab.scanner.web.ScopeResult
 import com.strykerx.lab.scanner.web.ScopeValidator
 import com.strykerx.lab.scanner.web.TlsCheck
+import com.strykerx.lab.scanner.web.VerboseErrorCheck
+import com.strykerx.lab.scanner.web.WafDetectCheck
 import com.strykerx.lab.scanner.web.WebCheck
+import com.strykerx.lab.scanner.web.WebFinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -76,9 +80,11 @@ class WebScanOrchestrator(
         add(ContentSecurityCheck())
         add(CorsCheck())
         add(FingerprintCheck())
+        add(WafDetectCheck())
         add(SriCheck())
         add(PassiveReconCheck())
         add(RobotsReconCheck())
+        add(VerboseErrorCheck())
         add(ExposureCheck())
         if (policy.allowActiveTests) {
             add(InjectionCheck())
@@ -141,6 +147,33 @@ class WebScanOrchestrator(
 
         var stored = 0
         var completed = 0
+        val allWebFindings = mutableListOf<WebFinding>()
+
+        // Persist one finding (deduped). Returns true if newly stored.
+        suspend fun persist(f: WebFinding): Boolean {
+            if (findingDao.countByDedupe(sessionId, f.dedupeKey) != 0) return false
+            findingDao.insertIfNew(
+                FindingEntity(
+                    id = UUID.randomUUID().toString(),
+                    sessionId = sessionId,
+                    findingCode = f.code,
+                    title = f.title,
+                    target = baseUrl,
+                    affected = f.affected,
+                    detectionMethod = f.detectionMethod,
+                    evidence = f.evidence,
+                    severity = f.severity.name,
+                    confidence = f.confidence.name,
+                    verificationStatus = f.verification.name,
+                    reproduction = f.reproduction,
+                    remediation = f.remediation,
+                    dedupeKey = f.dedupeKey,
+                    createdAt = System.currentTimeMillis()
+                )
+            )
+            return true
+        }
+
         try {
             for (check in checks) {
                 currentCoroutineContext().ensureActive() // honors Stop Scan
@@ -155,31 +188,16 @@ class WebScanOrchestrator(
 
                 val findings = runCatching { check.run(http, baseUrl) }.getOrDefault(emptyList())
                 for (f in findings) {
-                    if (findingDao.countByDedupe(sessionId, f.dedupeKey) == 0) {
-                        findingDao.insertIfNew(
-                            FindingEntity(
-                                id = UUID.randomUUID().toString(),
-                                sessionId = sessionId,
-                                findingCode = f.code,
-                                title = f.title,
-                                target = baseUrl,
-                                affected = f.affected,
-                                detectionMethod = f.detectionMethod,
-                                evidence = f.evidence,
-                                severity = f.severity.name,
-                                confidence = f.confidence.name,
-                                verificationStatus = f.verification.name,
-                                reproduction = f.reproduction,
-                                remediation = f.remediation,
-                                dedupeKey = f.dedupeKey,
-                                createdAt = System.currentTimeMillis()
-                            )
-                        )
-                        stored++
-                    }
+                    allWebFindings.add(f)
+                    if (persist(f)) stored++
                 }
                 completed++
                 onProgress(completed, total)
+            }
+
+            // Analyst correlation: derive higher-level insights from the full set.
+            for (insight in CorrelationEngine.correlate(allWebFindings)) {
+                if (persist(insight)) stored++
             }
         } catch (ce: kotlinx.coroutines.CancellationException) {
             sessionDao.updateState(sessionId, ScanState.CANCELLED.name, System.currentTimeMillis())
