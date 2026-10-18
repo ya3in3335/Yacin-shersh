@@ -10,6 +10,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -19,14 +21,19 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.strykerx.lab.R
 import com.strykerx.lab.core.common.Severity
+import com.strykerx.lab.core.i18n.LocalAppLanguage
+import com.strykerx.lab.core.i18n.t
 import com.strykerx.lab.core.resources.DeviceStatus
 import com.strykerx.lab.core.ui.components.ScreenHeader
 import com.strykerx.lab.core.ui.components.StatCard
@@ -45,6 +52,7 @@ fun DashboardScreen(
 ) {
     val vm: DashboardViewModel = viewModel(factory = factory)
     val state by vm.state.collectAsStateWithLifecycle()
+    val lang = LocalAppLanguage.current
 
     LaunchedEffect(Unit) { vm.refreshDeviceStatus() }
 
@@ -55,17 +63,25 @@ fun DashboardScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        ScreenHeader("STRYKER X", "MOBILE SECURITY LAB")
+        Row(verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Image(
+                painter = painterResource(R.drawable.ic_launcher_foreground),
+                contentDescription = "Cherlogons logo",
+                modifier = Modifier.size(48.dp)
+            )
+            ScreenHeader("Cherlogons", t("app_subtitle", lang))
+        }
 
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatCard("Completed Scans", state.completedScans.toString(), Modifier.weight(1f))
-            StatCard("Active Scans", state.activeScans.toString(), Modifier.weight(1f),
+            StatCard(t("dash_completed", lang), state.completedScans.toString(), Modifier.weight(1f))
+            StatCard(t("dash_active", lang), state.activeScans.toString(), Modifier.weight(1f),
                 accent = MaterialTheme.colorScheme.secondary)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatCard("Potential", state.potentialFindings.toString(), Modifier.weight(1f),
+            StatCard(t("dash_potential", lang), state.potentialFindings.toString(), Modifier.weight(1f),
                 accent = SevMedium)
-            StatCard("Confirmed", state.confirmedFindings.toString(), Modifier.weight(1f),
+            StatCard(t("dash_confirmed", lang), state.confirmedFindings.toString(), Modifier.weight(1f),
                 accent = SevCritical)
         }
 
@@ -78,16 +94,17 @@ fun DashboardScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Icon(Icons.Filled.PlayArrow, contentDescription = null)
-            Text("  Quick Start Scan", fontWeight = FontWeight.Bold)
+            Text("  " + t("dash_quickstart", lang), fontWeight = FontWeight.Bold)
         }
     }
 }
 
 @Composable
 private fun SeverityDistribution(state: DashboardUiState) {
+    val lang = LocalAppLanguage.current
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Text("Severity Distribution", color = MaterialTheme.colorScheme.onSurface,
+            Text(t("dash_severity", lang), color = MaterialTheme.colorScheme.onSurface,
                 fontWeight = FontWeight.Bold)
             Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 SevPill("C", state.severity.critical, SevCritical)
@@ -110,9 +127,10 @@ private fun SevPill(label: String, count: Int, color: Color) {
 
 @Composable
 private fun DeviceStatusCard(device: DeviceStatus) {
+    val lang = LocalAppLanguage.current
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Text("Device Resource Status", color = MaterialTheme.colorScheme.onSurface,
+            Text(t("dash_device", lang), color = MaterialTheme.colorScheme.onSurface,
                 fontWeight = FontWeight.Bold)
             Text(
                 "Battery: ${device.batteryPercent}%" +
@@ -129,12 +147,13 @@ private fun DeviceStatusCard(device: DeviceStatus) {
 
 @Composable
 private fun RecentActivityCard(state: DashboardUiState) {
+    val lang = LocalAppLanguage.current
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Text("Recent Activity", color = MaterialTheme.colorScheme.onSurface,
+            Text(t("dash_recent", lang), color = MaterialTheme.colorScheme.onSurface,
                 fontWeight = FontWeight.Bold)
             if (state.recent.isEmpty()) {
-                Text("No scans yet.", color = MaterialTheme.colorScheme.onSurfaceVariant,
+                Text(t("dash_no_scans", lang), color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
             } else {
                 state.recent.take(5).forEach { s ->

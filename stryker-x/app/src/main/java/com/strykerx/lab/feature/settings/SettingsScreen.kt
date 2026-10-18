@@ -6,9 +6,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
@@ -22,6 +26,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.strykerx.lab.core.i18n.AppLanguage
+import com.strykerx.lab.core.i18n.LocalAppLanguage
+import com.strykerx.lab.core.i18n.t
 import com.strykerx.lab.core.resources.ResourceProfile
 import com.strykerx.lab.core.ui.components.ScreenHeader
 import com.strykerx.lab.di.StrykerViewModelFactory
@@ -30,20 +37,40 @@ import com.strykerx.lab.di.StrykerViewModelFactory
 fun SettingsScreen(factory: StrykerViewModelFactory) {
     val vm: SettingsViewModel = viewModel(factory = factory)
     val profile by vm.profile.collectAsStateWithLifecycle()
+    val language by vm.language.collectAsStateWithLifecycle()
+    val lang = LocalAppLanguage.current
 
     Column(
-        Modifier.fillMaxSize().padding(16.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        ScreenHeader("Settings")
+        ScreenHeader(t("settings_title", lang))
 
+        // Language center
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
             Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                Text("Resource Profile", color = MaterialTheme.colorScheme.onSurface,
+                Text(t("settings_language", lang), color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.Bold)
-                Text("Controls concurrency, pacing and the battery level at which scans pause.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp,
-                    modifier = Modifier.padding(bottom = 8.dp))
+                FlowRow(
+                    Modifier.padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    AppLanguage.entries.forEach { l ->
+                        FilterChip(
+                            selected = l == language,
+                            onClick = { vm.selectLanguage(l) },
+                            label = { Text(l.nativeName) }
+                        )
+                    }
+                }
+            }
+        }
+
+        // Resource profile
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                Text(t("settings_profile", lang), color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Bold)
                 ResourceProfile.entries.forEach { p ->
                     ProfileRow(p, selected = p == profile, onSelect = { vm.selectProfile(p) })
                 }
@@ -51,14 +78,11 @@ fun SettingsScreen(factory: StrykerViewModelFactory) {
         }
 
         OutlinedButton(onClick = vm::clearHistory, modifier = Modifier.fillMaxWidth()) {
-            Text("Delete Scan History & Findings")
+            Text(t("settings_delete", lang))
         }
 
-        Text(
-            "STRYKER X runs 100% locally. No telemetry, no accounts, no remote backend. " +
-                "For authorized security assessments only.",
-            color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp
-        )
+        Text(t("settings_about", lang),
+            color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
     }
 }
 

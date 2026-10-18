@@ -1,3 +1,20 @@
+# Cherlogons (formerly STRYKER X) — PROJECT_STATE
+
+## Rebrand + power + i18n update
+- Renamed app to **Cherlogons** (detective theme); new adaptive launcher icon
+  (magnifier + check) and in-app logo. Package namespace unchanged.
+- New powerful web checks (all non-destructive, authorized): CORS misconfig,
+  extended security headers (COOP/CORP/XPCDP, CSP quality, legacy XSS auditor),
+  passive recon (DNS A/AAAA, mixed content, secret/token pattern exposure),
+  much larger exposed-file wordlist (git/svn/hg, .env variants, actuator,
+  swagger/openapi, SQL dumps, backups, docker-compose, etc.), and an OPT-IN
+  injection check (reflected XSS + error-based SQLi on URL params, scope-gated).
+- Added a **Settings language center**: 7 in-app languages (EN/AR/FR/ES/DE/TR/RU)
+  switchable live, with RTL layout for Arabic. UI chrome localized via an in-app
+  translation table (technical finding text stays English by design).
+
+---
+
 # STRYKER X — PROJECT_STATE
 
 **Current phase:** Phase A ✅ (CI green) + Phase B integration (Website Scanner now functional).

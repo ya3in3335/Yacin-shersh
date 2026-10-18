@@ -15,17 +15,18 @@ import androidx.compose.ui.graphics.vector.ImageVector
 enum class Destination(
     val route: String,
     val label: String,
+    val labelKey: String,
     val icon: ImageVector,
     val inBottomBar: Boolean
 ) {
-    DASHBOARD("dashboard", "Dashboard", Icons.Filled.Dashboard, true),
-    WEB_SCANNER("webscanner", "Web", Icons.Filled.TravelExplore, true),
-    APK_ANALYZER("apkanalyzer", "APK", Icons.Filled.Android, true),
-    NETWORK_INSPECTOR("networkinspector", "Network", Icons.Filled.Lan, true),
-    FINDINGS("findings", "Findings", Icons.Filled.Shield, true),
-    API_INSPECTOR("apiinspector", "API Inspector", Icons.Filled.Api, false),
-    REPORTS("reports", "Reports", Icons.Filled.Assessment, false),
-    SETTINGS("settings", "Settings", Icons.Filled.Settings, false);
+    DASHBOARD("dashboard", "Dashboard", "nav_dashboard", Icons.Filled.Dashboard, true),
+    WEB_SCANNER("webscanner", "Web", "nav_web", Icons.Filled.TravelExplore, true),
+    APK_ANALYZER("apkanalyzer", "APK", "nav_apk", Icons.Filled.Android, true),
+    NETWORK_INSPECTOR("networkinspector", "Network", "nav_network", Icons.Filled.Lan, true),
+    FINDINGS("findings", "Findings", "nav_findings", Icons.Filled.Shield, true),
+    API_INSPECTOR("apiinspector", "API Inspector", "nav_web", Icons.Filled.Api, false),
+    REPORTS("reports", "Reports", "nav_findings", Icons.Filled.Assessment, false),
+    SETTINGS("settings", "Settings", "settings_title", Icons.Filled.Settings, false);
 
     companion object {
         val bottomBar: List<Destination> = entries.filter { it.inBottomBar }

@@ -79,7 +79,11 @@ class SafeHttp(
     }
 
     /** GET with manual, scope-checked redirect handling. Returns null on error/out-of-scope. */
-    fun get(url: String, method: String = "GET"): HttpResult? {
+    fun get(
+        url: String,
+        method: String = "GET",
+        extraHeaders: Map<String, String> = emptyMap()
+    ): HttpResult? {
         var currentUrl = url
         var redirects = 0
         while (true) {
@@ -88,11 +92,12 @@ class SafeHttp(
                 is ScopeResult.Allowed -> currentUrl = v.normalizedUrl
             }
             pace()
-            val request = Request.Builder()
+            val builder = Request.Builder()
                 .url(currentUrl)
                 .method(method, null)
-                .header("User-Agent", "STRYKER-X/1.0 (authorized-testing)")
-                .build()
+                .header("User-Agent", "Cherlogons/1.0 (authorized-testing)")
+            for ((k, value) in extraHeaders) builder.header(k, value)
+            val request = builder.build()
 
             val response: Response = runCatching { client.newCall(request).execute() }
                 .getOrNull() ?: return null

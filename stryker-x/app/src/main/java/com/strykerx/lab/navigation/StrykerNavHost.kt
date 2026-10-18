@@ -13,6 +13,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.strykerx.lab.core.i18n.LocalAppLanguage
+import com.strykerx.lab.core.i18n.t
 import com.strykerx.lab.di.AppContainer
 import com.strykerx.lab.di.StrykerViewModelFactory
 import com.strykerx.lab.feature.apiinspector.ApiInspectorScreen
@@ -31,6 +33,7 @@ fun StrykerNavHost(container: AppContainer) {
 
     val backStack by navController.currentBackStackEntryAsState()
     val current = Destination.fromRoute(backStack?.destination?.route)
+    val lang = LocalAppLanguage.current
 
     Scaffold(
         bottomBar = {
@@ -48,7 +51,7 @@ fun StrykerNavHost(container: AppContainer) {
                             }
                         },
                         icon = { Icon(dest.icon, contentDescription = dest.label) },
-                        label = { Text(dest.label) }
+                        label = { Text(t(dest.labelKey, lang)) }
                     )
                 }
             }

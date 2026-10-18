@@ -14,6 +14,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.strykerx.lab.core.i18n.LocalAppLanguage
+import com.strykerx.lab.core.i18n.t
 import com.strykerx.lab.core.ui.components.FindingCard
 import com.strykerx.lab.core.ui.components.ScreenHeader
 import com.strykerx.lab.di.StrykerViewModelFactory
@@ -22,12 +24,13 @@ import com.strykerx.lab.di.StrykerViewModelFactory
 fun FindingsScreen(factory: StrykerViewModelFactory) {
     val vm: FindingsViewModel = viewModel(factory = factory)
     val findings by vm.findings.collectAsStateWithLifecycle()
+    val lang = LocalAppLanguage.current
 
     Column(Modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        ScreenHeader("Findings", "${findings.size} stored")
+        ScreenHeader(t("findings_title", lang), "${findings.size} stored")
         if (findings.isEmpty()) {
-            Text("No findings yet. Run a scan from the Website Scanner.",
+            Text(t("findings_empty", lang),
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {

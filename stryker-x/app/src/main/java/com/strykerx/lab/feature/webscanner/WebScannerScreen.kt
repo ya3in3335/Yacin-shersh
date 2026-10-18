@@ -32,6 +32,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.strykerx.lab.core.i18n.LocalAppLanguage
+import com.strykerx.lab.core.i18n.t
 import com.strykerx.lab.core.ui.components.FindingCard
 import com.strykerx.lab.core.ui.components.ScreenHeader
 import com.strykerx.lab.feature.reports.ReportBuilder
@@ -43,17 +45,17 @@ fun WebScannerScreen(factory: StrykerViewModelFactory) {
     val vm: WebScannerViewModel = viewModel(factory = factory)
     val state by vm.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val lang = LocalAppLanguage.current
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        ScreenHeader("Website Scanner", "Authorized, non-destructive checks")
+        ScreenHeader(t("web_title", lang), t("web_subtitle", lang))
 
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
             Text(
-                "Authorized testing only. A URL does not grant permission. Scans are locked " +
-                    "to the target host (and any allow-listed hosts) and rate-limited by your profile.",
+                t("web_authz_notice", lang),
                 Modifier.padding(12.dp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp
             )
@@ -61,28 +63,29 @@ fun WebScannerScreen(factory: StrykerViewModelFactory) {
 
         OutlinedTextField(
             value = state.target, onValueChange = vm::onTarget,
-            label = { Text("Target URL  (https://example.com)") },
+            label = { Text(t("web_target", lang)) },
             singleLine = true, modifier = Modifier.fillMaxWidth()
         )
         OutlinedTextField(
             value = state.allowlist, onValueChange = vm::onAllowlist,
-            label = { Text("Additional in-scope hosts (optional, one per line)") },
+            label = { Text(t("web_allowlist", lang)) },
             modifier = Modifier.fillMaxWidth()
         )
 
-        CheckRow("I am authorized to scan this target", state.authorized, vm::onAuthorized)
-        CheckRow("Allow internal/private network targets", state.allowInternalNetwork, vm::onInternalNetwork)
+        CheckRow(t("web_authorized", lang), state.authorized, vm::onAuthorized)
+        CheckRow(t("web_active_tests", lang), state.allowActiveTests, vm::onActiveTests)
+        CheckRow(t("web_internal", lang), state.allowInternalNetwork, vm::onInternalNetwork)
 
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Button(
                 onClick = vm::start, enabled = !state.running,
                 modifier = Modifier.weight(1f)
             ) {
-                Icon(Icons.Filled.PlayArrow, null); Text(" START SCAN", fontWeight = FontWeight.Bold)
+                Icon(Icons.Filled.PlayArrow, null); Text(" " + t("web_start", lang), fontWeight = FontWeight.Bold)
             }
             OutlinedButton(
                 onClick = vm::stop, enabled = state.running, modifier = Modifier.weight(1f)
-            ) { Icon(Icons.Filled.Stop, null); Text(" STOP") }
+            ) { Icon(Icons.Filled.Stop, null); Text(" " + t("web_stop", lang)) }
         }
 
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -110,7 +113,7 @@ fun WebScannerScreen(factory: StrykerViewModelFactory) {
                     )
                 },
                 modifier = Modifier.fillMaxWidth()
-            ) { Icon(Icons.Filled.SmartToy, null); Text("  Send to AI app") }
+            ) { Icon(Icons.Filled.SmartToy, null); Text("  " + t("web_send_ai", lang)) }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
@@ -119,14 +122,14 @@ fun WebScannerScreen(factory: StrykerViewModelFactory) {
                             ReportBuilder.markdown(state.target, state.findings))
                     },
                     modifier = Modifier.weight(1f)
-                ) { Text("Share report") }
+                ) { Text(t("web_share", lang)) }
                 OutlinedButton(
                     onClick = {
-                        ReportSharer.shareFile(context, "stryker-x-report.md",
+                        ReportSharer.shareFile(context, "cherlogons-report.md",
                             ReportBuilder.markdown(state.target, state.findings))
                     },
                     modifier = Modifier.weight(1f)
-                ) { Text("Export .md") }
+                ) { Text(t("web_export", lang)) }
             }
 
             state.findings.forEach { f ->

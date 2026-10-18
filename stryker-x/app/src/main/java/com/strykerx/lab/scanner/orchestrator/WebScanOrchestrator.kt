@@ -15,9 +15,13 @@ import com.strykerx.lab.core.network.SafeHttp
 import com.strykerx.lab.core.resources.ResourceMonitor
 import com.strykerx.lab.core.resources.ResourceProfile
 import com.strykerx.lab.core.resources.evaluatePause
+import com.strykerx.lab.scanner.web.ContentSecurityCheck
+import com.strykerx.lab.scanner.web.CorsCheck
 import com.strykerx.lab.scanner.web.ExposureCheck
 import com.strykerx.lab.scanner.web.FingerprintCheck
 import com.strykerx.lab.scanner.web.HeaderCheck
+import com.strykerx.lab.scanner.web.InjectionCheck
+import com.strykerx.lab.scanner.web.PassiveReconCheck
 import com.strykerx.lab.scanner.web.ScopePolicy
 import com.strykerx.lab.scanner.web.ScopeResult
 import com.strykerx.lab.scanner.web.ScopeValidator
@@ -60,8 +64,17 @@ class WebScanOrchestrator(
     private val errorLogDao: ErrorLogDao,
     private val resourceMonitor: ResourceMonitor
 ) {
-    private val checks: List<WebCheck> =
-        listOf(TlsCheck(), HeaderCheck(), FingerprintCheck(), ExposureCheck())
+    /** Passive + configuration checks always run; injection is opt-in and scope-gated. */
+    private fun checksFor(policy: ScopePolicy): List<WebCheck> = buildList {
+        add(TlsCheck())
+        add(HeaderCheck())
+        add(ContentSecurityCheck())
+        add(CorsCheck())
+        add(FingerprintCheck())
+        add(PassiveReconCheck())
+        add(ExposureCheck())
+        if (policy.allowActiveTests) add(InjectionCheck())
+    }
 
     suspend fun run(
         request: WebScanRequest,
@@ -76,6 +89,16 @@ class WebScanOrchestrator(
         val targetId = UUID.randomUUID().toString()
         val sessionId = UUID.randomUUID().toString()
 
+        val policy = ScopePolicy(
+            targetHost = host,
+            allowlist = request.allowlist,
+            authorizationDeclared = request.authorizationDeclared,
+            allowActiveTests = request.allowActiveTests,
+            allowInternalNetwork = request.allowInternalNetwork
+        )
+        val checks = checksFor(policy)
+        val total = checks.size
+
         targetDao.upsert(TargetEntity(targetId, baseUrl, host, "WEBSITE", now))
         scopeDao.upsert(
             ScopeEntity(
@@ -89,21 +112,12 @@ class WebScanOrchestrator(
                 createdAt = now
             )
         )
-        val total = checks.size
         sessionDao.upsert(
             ScanSessionEntity(
                 id = sessionId, targetId = targetId, profile = profile.name,
                 state = ScanState.RUNNING.name, startedAt = now, finishedAt = null,
                 totalChecks = total, completedChecks = 0, checkpoint = null
             )
-        )
-
-        val policy = ScopePolicy(
-            targetHost = host,
-            allowlist = request.allowlist,
-            authorizationDeclared = request.authorizationDeclared,
-            allowActiveTests = request.allowActiveTests,
-            allowInternalNetwork = request.allowInternalNetwork
         )
 
         // Stage A — scope verification (with DNS resolution).
