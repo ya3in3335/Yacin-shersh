@@ -45,14 +45,18 @@ class SafeHttp(
 ) {
     private var lastRequest = 0L
 
-    private val scopeDns = Dns { hostname ->
-        val resolved = Dns.SYSTEM.lookup(hostname)
-        val filtered = if (policy.allowInternalNetwork) resolved
-        else resolved.filterNot { ScopeValidator.isPrivateOrReserved(it) }
-        if (filtered.isEmpty()) {
-            throw UnknownHostException("Blocked by scope policy: $hostname resolves only to disallowed addresses")
+    private val scopeDns = object : Dns {
+        override fun lookup(hostname: String): List<InetAddress> {
+            val resolved = Dns.SYSTEM.lookup(hostname)
+            val filtered = if (policy.allowInternalNetwork) resolved
+            else resolved.filterNot { ScopeValidator.isPrivateOrReserved(it) }
+            if (filtered.isEmpty()) {
+                throw UnknownHostException(
+                    "Blocked by scope policy: $hostname resolves only to disallowed addresses"
+                )
+            }
+            return filtered
         }
-        filtered
     }
 
     private val client: OkHttpClient = OkHttpClient.Builder()
