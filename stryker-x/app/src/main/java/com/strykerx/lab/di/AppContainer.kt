@@ -5,6 +5,7 @@ import com.strykerx.lab.core.common.SettingsStore
 import com.strykerx.lab.core.common.StrykerRepository
 import com.strykerx.lab.core.database.StrykerDatabase
 import com.strykerx.lab.core.resources.ResourceMonitor
+import com.strykerx.lab.scanner.apk.ApkScanOrchestrator
 import com.strykerx.lab.scanner.orchestrator.WebScanOrchestrator
 
 /**
@@ -31,5 +32,13 @@ class AppContainer(context: Context) {
         findingDao = database.findingDao(),
         errorLogDao = database.errorLogDao(),
         resourceMonitor = resourceMonitor
+    )
+
+    val apkScanOrchestrator = ApkScanOrchestrator(
+        appContext = context.applicationContext,
+        targetDao = database.targetDao(),
+        sessionDao = database.scanSessionDao(),
+        findingDao = database.findingDao(),
+        errorLogDao = database.errorLogDao()
     )
 }

@@ -7,7 +7,16 @@ Honest status as of Phase A. Nothing here is hidden behind a polished UI.
   exposed files, fingerprint; scope/authorization gate; Room persistence; report + AI share.
   Still pending: opt-in active tests (reflected-input/XSS, error-based SQLi) on approved
   targets; CORS deep-dive; true pause/resume (pause currently aborts gracefully).
-- **APK Analyzer (Phase C)** — no APK import/parsing yet.
+- **APK Analyzer (Phase C)** — FUNCTIONAL: import an APK via the Storage Access
+  Framework; it is copied to cache under a 200 MB cap and never executed. The
+  binary manifest is read by the platform `PackageManager` (the authoritative
+  parser) for package/version/SDK, permissions and exported components; DEX files
+  get a bounded (25 MB) string scan for risky API/secret indicators. Findings are
+  persisted and scored like web findings.
+  Caveats: uses `PackageManager` rather than a hand-written AXML parser; the DEX
+  pass is a bounded string scan, NOT full decompilation; intent-filter-implied
+  exports rely on the platform's computed `exported` flag; certificate-chain
+  parsing is not done yet.
 - **API Inspector + Network Inspector (Phase D)** — placeholders only.
 - **Reports (Phase E)** — no PDF/HTML/JSON/Markdown/HackerOne export yet.
 - **Scan Orchestrator / WorkManager jobs** — not wired until Phase B.

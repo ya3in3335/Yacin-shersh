@@ -1,5 +1,17 @@
 # Cherlogons (formerly STRYKER X) — PROJECT_STATE
 
+## Logo #3 + APK Analyzer (Phase C) now live
+- App icon is now logo #3: a fingerprint inside a magnifying glass (noir palette).
+- APK Analyzer is functional: SAF import → cache copy (200 MB cap, never executed) →
+  `PackageManager` manifest parse (package/version/SDK, permissions, exported
+  components) + bounded (25 MB) DEX string scan (insecure WebView, world-readable,
+  trust-all TLS, weak ciphers, hardcoded secrets). Findings persist to Room and feed
+  the Security Strength score. `ApkScanOrchestrator` wired via the container; the
+  Findings screen and dashboard include APK findings.
+
+---
+
+
 ## Rebrand + power + i18n update
 - Renamed app to **Cherlogons** (detective theme); new adaptive launcher icon
   (magnifier + check) and in-app logo. Package namespace unchanged.

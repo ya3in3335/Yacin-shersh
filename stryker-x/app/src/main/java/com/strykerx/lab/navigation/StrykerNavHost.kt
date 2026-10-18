@@ -69,7 +69,7 @@ fun StrykerNavHost(container: AppContainer) {
                 )
             }
             composable(Destination.WEB_SCANNER.route) { WebScannerScreen(factory = factory) }
-            composable(Destination.APK_ANALYZER.route) { ApkAnalyzerScreen() }
+            composable(Destination.APK_ANALYZER.route) { ApkAnalyzerScreen(factory = factory) }
             composable(Destination.NETWORK_INSPECTOR.route) { NetworkInspectorScreen() }
             composable(Destination.FINDINGS.route) { FindingsScreen(factory = factory) }
             composable(Destination.API_INSPECTOR.route) { ApiInspectorScreen() }

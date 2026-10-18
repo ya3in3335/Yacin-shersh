@@ -2,6 +2,7 @@ package com.strykerx.lab.di
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import com.strykerx.lab.feature.apkanalyzer.ApkAnalyzerViewModel
 import com.strykerx.lab.feature.dashboard.DashboardViewModel
 import com.strykerx.lab.feature.findings.FindingsViewModel
 import com.strykerx.lab.feature.settings.SettingsViewModel
@@ -19,6 +20,8 @@ class StrykerViewModelFactory(private val container: AppContainer) : ViewModelPr
             WebScannerViewModel(container.webScanOrchestrator, container.settings, container.repository) as T
         modelClass.isAssignableFrom(FindingsViewModel::class.java) ->
             FindingsViewModel(container.repository) as T
+        modelClass.isAssignableFrom(ApkAnalyzerViewModel::class.java) ->
+            ApkAnalyzerViewModel(container.apkScanOrchestrator, container.repository) as T
         else -> throw IllegalArgumentException("Unknown ViewModel: ${modelClass.name}")
     }
 }
