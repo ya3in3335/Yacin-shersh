@@ -37,9 +37,13 @@ object ScopeValidator {
     private val ALLOWED_SCHEMES = setOf("http", "https")
     private const val METADATA_IP = "169.254.169.254"
 
+    private val SCHEME_PREFIX = Regex("^[a-zA-Z][a-zA-Z0-9+.-]*://")
+
     fun normalizeUrl(raw: String): String {
         var v = raw.trim()
-        if (!v.startsWith("http://") && !v.startsWith("https://")) v = "https://$v"
+        // Only default to https when NO scheme is present; a non-http(s) scheme
+        // (e.g. ftp://) must be preserved so validateSyntax can reject it.
+        if (!SCHEME_PREFIX.containsMatchIn(v)) v = "https://$v"
         return v.trimEnd('/')
     }
 
