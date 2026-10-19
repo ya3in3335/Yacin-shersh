@@ -37,6 +37,13 @@ Honest status as of Phase A. Nothing here is hidden behind a polished UI.
   present, which upgrades many library matches from a version-unknown lead to a
   version-exact CONFIRMED CVE.
 
+- **Cherlogons Privacy Radar** — our own, in-house tracker/SDK signature engine
+  (`TrackerSignatures`). It fingerprints bundled trackers, ad networks, analytics,
+  crash, profiling, push and location SDKs from DEX type descriptors, fully
+  offline — no external service is contacted. A match means the SDK is bundled
+  (reported CONFIRMED); runtime use is a separate question. This is entirely our
+  engine, not a dependency on any third-party privacy database.
+
 ### What static analysis proves (and what it does not)
 - **Facts (reported CONFIRMED):** manifest flags (debuggable, cleartext,
   allowBackup), exported components without a permission guard, the signing

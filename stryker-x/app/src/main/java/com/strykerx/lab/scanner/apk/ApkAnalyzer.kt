@@ -366,6 +366,7 @@ object ApkAnalyzer {
                 val secretHits = linkedMapOf<String, MutableList<String>>() // label -> redacted samples
                 val endpoints = linkedSetOf<String>()                  // discovered server URLs
                 val components = linkedMapOf<String, DetectedComponent>() // coordinate -> component
+                val trackers = linkedMapOf<String, TrackerSignatures.Tracker>() // name -> tracker
                 val entries = zip.entries()
                 while (entries.hasMoreElements()) {
                     val e = entries.nextElement()
@@ -401,6 +402,10 @@ object ApkAnalyzer {
                                 components[sig.coordinate] = DetectedComponent(sig.name, sig.coordinate, version)
                             }
                         }
+                        // Cherlogons Privacy Radar — our own tracker/SDK fingerprints.
+                        for (t in TrackerSignatures.ALL) {
+                            if (!trackers.containsKey(t.name) && text.contains(t.marker)) trackers[t.name] = t
+                        }
                         URL_REGEX.findAll(text).forEach { m ->
                             if (endpoints.size < MAX_ENDPOINTS) endpoints.add(m.value.take(160))
                         }
@@ -430,6 +435,27 @@ object ApkAnalyzer {
                         }.take(1200),
                         Severity.INFO, VerificationStatus.INFORMATIONAL,
                         "Components with an exact version are matched against the CVE database (OSV) for a CONFIRMED verdict; version-unknown ones are checked as leads.")
+                }
+
+                // Cherlogons Privacy Radar: report detected trackers/SDKs (our engine).
+                if (trackers.isNotEmpty()) {
+                    val byCat = trackers.values.groupBy { it.category }
+                    val summary = byCat.entries.joinToString("\n") { (cat, list) ->
+                        "• ${cat.label}: " + list.joinToString(", ") { it.name }
+                    }
+                    val hasAds = byCat.containsKey(TrackerSignatures.Category.ADVERTISING)
+                    val hasLoc = byCat.containsKey(TrackerSignatures.Category.LOCATION)
+                    val sev = when {
+                        hasLoc -> Severity.MEDIUM
+                        hasAds -> Severity.MEDIUM
+                        trackers.size >= 4 -> Severity.MEDIUM
+                        else -> Severity.LOW
+                    }
+                    out += f("apk-privacy-radar", "Cherlogons Privacy Radar: ${trackers.size} tracker/SDK(s) bundled", pkg,
+                        "Cherlogons Privacy Radar (offline DEX signature match)",
+                        summary.take(1400),
+                        sev, VerificationStatus.CONFIRMED,
+                        "Each bundled SDK is a verified fact. Confirm which are actually needed; advertising, profiling and location SDKs carry the highest privacy impact and may require consent/disclosure (e.g. GDPR/CCPA).")
                 }
 
                 // Vulnerability-class indicators, with severity escalation on correlation.
