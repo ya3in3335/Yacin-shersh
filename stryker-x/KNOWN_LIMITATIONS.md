@@ -32,7 +32,22 @@ Honest status as of Phase A. Nothing here is hidden behind a polished UI.
   it fails safe offline (an informational "CVE lookup skipped" note). When a
   library version is embedded and extracted, the match is version-exact
   (CONFIRMED); otherwise it is reported as POTENTIAL with a note to verify the
-  bundled version against the affected ranges.
+  bundled version against the affected ranges. Exact versions are extracted
+  authoritatively from Gradle's `META-INF/<group>_<artifact>.version` files when
+  present, which upgrades many library matches from a version-unknown lead to a
+  version-exact CONFIRMED CVE.
+
+### What static analysis proves (and what it does not)
+- **Facts (reported CONFIRMED):** manifest flags (debuggable, cleartext,
+  allowBackup), exported components without a permission guard, the signing
+  certificate, and a known CVE in a library whose exact version was extracted.
+  These are verifiable and are the report-worthy findings.
+- **Leads (reported POTENTIAL):** DEX string/API matches (WebView, crypto,
+  SQLi surfaces) and version-unknown library CVEs. A string match is NOT proof
+  of an exploitable vulnerability — it is a lead the owner (or an authorized
+  dynamic test) must confirm. The tool deliberately does not claim exploitability
+  it cannot demonstrate; proving runtime exploitability requires authorized
+  dynamic/instrumented testing, which is out of scope for this static analyzer.
   It can also analyze apps already INSTALLED on the device: the user picks one
   from a searchable list and it is analyzed in place from its on-device APK path
   (no copy, never deleted). Listing installed apps needs the QUERY_ALL_PACKAGES

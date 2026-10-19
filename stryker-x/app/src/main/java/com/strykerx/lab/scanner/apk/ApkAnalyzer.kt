@@ -51,6 +51,7 @@ object ApkAnalyzer {
     private const val MAX_ENTRIES = 40_000
     private const val MAX_COMPONENT_FINDINGS = 40
     private const val MAX_ENDPOINTS = 300
+    private const val MAX_COMPONENTS = 60
 
     private val URL_REGEX = Regex("""https?://[A-Za-z0-9._~:/?#\[\]@!${'$'}&'()*+,;=%-]{3,}""")
 
@@ -333,11 +334,14 @@ object ApkAnalyzer {
         fun report(name: String, kind: String, sev: Severity) {
             if (reported >= MAX_COMPONENT_FINDINGS) return
             reported++
+            // The platform PackageManager confirms exported=true with no permission —
+            // this is a verified fact about the manifest, not a guess, so CONFIRMED.
             out += f(
-                "apk-exported-$name", "Exported $kind without permission: ${name.substringAfterLast('.')}",
-                pkg, "Component export analysis", "$name is exported and has no permission guard",
-                sev, VerificationStatus.POTENTIAL,
-                "Set android:exported=false, or protect it with a signature-level permission."
+                "apk-exported-$name", "Exported $kind without permission: ${name.substringAfterLast('.')} [CWE-926]",
+                pkg, "Manifest component export analysis (PackageManager)",
+                "$name is exported (android:exported=true) and declares no permission guard; any app can invoke it.",
+                sev, VerificationStatus.CONFIRMED,
+                "Set android:exported=false, or protect it with a signature-level permission. Validate all inbound Intents/URIs."
             )
         }
 
@@ -381,8 +385,13 @@ object ApkAnalyzer {
                         for ((label, rx) in SECRET_PATTERNS) {
                             val bucket = secretHits.getOrPut(label) { mutableListOf() }
                             if (bucket.size >= 3) continue
+                            val generic = label.startsWith("Generic")
                             rx.findAll(text).forEach { m ->
-                                if (bucket.size < 3) bucket.add(redact(m.value))
+                                if (bucket.size >= 3) return@forEach
+                                // Generic patterns are noisy: keep only high-entropy values
+                                // so placeholders like password="changeme" are dropped.
+                                if (generic && shannonEntropy(m.value) < 3.4) return@forEach
+                                bucket.add(redact(m.value))
                             }
                         }
                         for (sig in COMPONENT_SIGNATURES) {
@@ -397,15 +406,30 @@ object ApkAnalyzer {
                         }
                     }
                 }
+                // Authoritative versions from Gradle's META-INF/*.version files.
+                // This turns "version unknown (POTENTIAL)" into an exact version →
+                // an exact CVE match (CONFIRMED). The high-value, verifiable path.
+                val metaVersions = metaInfVersions(zip)
+                for ((coordinate, version) in metaVersions) {
+                    val existing = components[coordinate]
+                    if (existing != null) {
+                        if (existing.version == null) components[coordinate] = existing.copy(version = version)
+                    } else if (components.size < MAX_COMPONENTS) {
+                        val artifact = coordinate.substringAfterLast(':')
+                        components[coordinate] = DetectedComponent(artifact, coordinate, version)
+                    }
+                }
+
                 componentsOut += components.values
                 if (components.isNotEmpty()) {
-                    out += f("apk-components", "Third-party libraries detected (${components.size})", pkg,
-                        "DEX type-descriptor fingerprinting",
+                    val known = components.values.count { it.version != null }
+                    out += f("apk-components", "Third-party libraries detected (${components.size}, $known with exact version)", pkg,
+                        "DEX fingerprint + META-INF version extraction",
                         components.values.joinToString("  |  ") {
                             it.name + (it.version?.let { v -> " v$v" } ?: " (version unknown)")
-                        }.take(900),
+                        }.take(1200),
                         Severity.INFO, VerificationStatus.INFORMATIONAL,
-                        "These components are checked online against the CVE database (OSV) for known vulnerabilities.")
+                        "Components with an exact version are matched against the CVE database (OSV) for a CONFIRMED verdict; version-unknown ones are checked as leads.")
                 }
 
                 // Vulnerability-class indicators, with severity escalation on correlation.
@@ -491,6 +515,47 @@ object ApkAnalyzer {
         val start = (index - 30).coerceAtLeast(0)
         val end = (index + len + 30).coerceAtMost(text.length)
         return text.substring(start, end).replace('\n', ' ').trim()
+    }
+
+    /**
+     * Reads Gradle's `META-INF/<group>_<artifact>.version` files, which carry the
+     * exact bundled version of a dependency. Authoritative when present — far more
+     * reliable than guessing a version from a DEX string. Returns coordinate→version.
+     */
+    private fun metaInfVersions(zip: ZipFile): Map<String, String> {
+        val out = linkedMapOf<String, String>()
+        val entries = zip.entries()
+        while (entries.hasMoreElements()) {
+            val e = entries.nextElement()
+            val name = e.name
+            if (!name.startsWith("META-INF/") || !name.endsWith(".version")) continue
+            if (e.size > 256) continue
+            if (out.size >= MAX_COMPONENTS) break
+            // File name: META-INF/<group>_<artifact>.version ; one '_' splits group/artifact.
+            val base = name.removePrefix("META-INF/").removeSuffix(".version")
+            val sep = base.indexOf('_')
+            if (sep <= 0 || sep >= base.length - 1) continue
+            val coordinate = base.substring(0, sep) + ":" + base.substring(sep + 1)
+            val version = runCatching {
+                zip.getInputStream(e).use { it.readBytes() }.toString(Charsets.UTF_8).trim()
+            }.getOrNull()?.takeIf { it.isNotBlank() && it.length <= 40 && it.none { c -> c == '\n' } } ?: continue
+            out[coordinate] = version
+        }
+        return out
+    }
+
+    /** Shannon entropy (bits/char) — used to drop low-signal generic secret matches. */
+    private fun shannonEntropy(s: String): Double {
+        if (s.isEmpty()) return 0.0
+        val freq = HashMap<Char, Int>()
+        for (c in s) freq[c] = (freq[c] ?: 0) + 1
+        var h = 0.0
+        val n = s.length.toDouble()
+        for ((_, cnt) in freq) {
+            val p = cnt / n
+            h -= p * (Math.log(p) / Math.log(2.0))
+        }
+        return h
     }
 
     /** Shows just enough of a matched secret to be recognizable, never the whole value. */

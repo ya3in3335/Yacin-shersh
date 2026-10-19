@@ -147,7 +147,9 @@ class ApkScanOrchestrator(
      */
     private fun cveEnrichment(pkg: String, components: List<DetectedComponent>): List<WebFinding> {
         if (components.isEmpty()) return emptyList()
-        val result = runCatching { cveClient.lookupAll(components) }.getOrNull()
+        // Query exact-version components first — those yield CONFIRMED CVE matches.
+        val ordered = components.sortedByDescending { it.version != null }
+        val result = runCatching { cveClient.lookupAll(ordered) }.getOrNull()
             ?: return emptyList()
         val out = mutableListOf<WebFinding>()
         if (!result.online) {

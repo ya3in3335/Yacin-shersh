@@ -143,7 +143,7 @@ class CveClient(
     }
 
     companion object {
-        private const val MAX_COMPONENTS = 20
+        private const val MAX_COMPONENTS = 30
         private const val MAX_IDS = 12
     }
 }
