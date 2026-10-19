@@ -23,6 +23,16 @@ Honest status as of Phase A. Nothing here is hidden behind a polished UI.
   cleartext endpoints, and cloud backends such as Firebase DBs and public
   buckets flagged for authorized follow-up). Findings are persisted and scored
   like web findings.
+  It also fingerprints bundled third-party libraries (OkHttp, Retrofit, Gson,
+  Jackson, Bouncy Castle, Commons Collections, Netty, Cordova, SQLCipher, etc.)
+  from DEX type descriptors and looks them up ONLINE against the public CVE
+  database (OSV.dev — aggregates CVE/GHSA advisories, no API key). Matches are
+  reported with the CVE/GHSA ids, advisory summary and severity. This network
+  call connects ONLY to the CVE database, never to the analyzed app's servers;
+  it fails safe offline (an informational "CVE lookup skipped" note). When a
+  library version is embedded and extracted, the match is version-exact
+  (CONFIRMED); otherwise it is reported as POTENTIAL with a note to verify the
+  bundled version against the affected ranges.
   It can also analyze apps already INSTALLED on the device: the user picks one
   from a searchable list and it is analyzed in place from its on-device APK path
   (no copy, never deleted). Listing installed apps needs the QUERY_ALL_PACKAGES

@@ -2,7 +2,13 @@ package com.strykerx.lab.scanner.apk
 
 import android.content.Context
 import android.net.Uri
+import com.strykerx.lab.core.common.Confidence
 import com.strykerx.lab.core.common.ScanState
+import com.strykerx.lab.core.common.Severity
+import com.strykerx.lab.core.common.VerificationStatus
+import com.strykerx.lab.core.network.CveClient
+import com.strykerx.lab.core.network.CveMatch
+import com.strykerx.lab.scanner.web.WebFinding
 import com.strykerx.lab.core.database.ErrorLogDao
 import com.strykerx.lab.core.database.ErrorLogEntity
 import com.strykerx.lab.core.database.FindingDao
@@ -33,7 +39,8 @@ class ApkScanOrchestrator(
     private val targetDao: TargetDao,
     private val sessionDao: ScanSessionDao,
     private val findingDao: FindingDao,
-    private val errorLogDao: ErrorLogDao
+    private val errorLogDao: ErrorLogDao,
+    private val cveClient: CveClient = CveClient()
 ) {
     /** Analyze an imported APK (content Uri). The copy is deleted afterwards. */
     suspend fun analyze(uri: Uri): ApkScanOutcome = withContext(Dispatchers.IO) {
@@ -71,6 +78,10 @@ class ApkScanOrchestrator(
                 return ApkScanOutcome(null, report, report.error ?: "Analysis failed.")
             }
 
+            // Enrich with known CVEs for detected libraries (online, OSV.dev).
+            val cveFindings = cveEnrichment(report.packageName, report.components)
+            val allFindings = report.findings + cveFindings
+
             val now = System.currentTimeMillis()
             val targetId = UUID.randomUUID().toString()
             val sessionId = UUID.randomUUID().toString()
@@ -83,7 +94,7 @@ class ApkScanOrchestrator(
                 )
             )
             var stored = 0
-            for (fnd in report.findings) {
+            for (fnd in allFindings) {
                 if (findingDao.countByDedupe(sessionId, fnd.dedupeKey) == 0) {
                     findingDao.insertIfNew(
                         FindingEntity(
@@ -115,7 +126,11 @@ class ApkScanOrchestrator(
                     completedChecks = 1, checkpoint = null
                 )
             )
-            return ApkScanOutcome(sessionId, report, "Analysis complete: ${report.findings.size} finding(s).")
+            return ApkScanOutcome(
+                sessionId, report.copy(findings = allFindings),
+                "Analysis complete: ${allFindings.size} finding(s)" +
+                    (if (cveFindings.isNotEmpty()) ", ${cveFindings.size} with known CVEs." else ".")
+            )
         } catch (t: Throwable) {
             errorLogDao.insert(ErrorLogEntity(sessionId = null, message = t.message ?: t.javaClass.simpleName, createdAt = System.currentTimeMillis()))
             return ApkScanOutcome(null, null, "Analysis error: ${t.message}")
@@ -123,6 +138,67 @@ class ApkScanOrchestrator(
             // Only delete our own cache copy, never an installed app's real APK.
             if (deleteAfter) runCatching { apk.delete() }
         }
+    }
+
+    /**
+     * Queries the online CVE database (OSV.dev) for the detected libraries and
+     * turns matches into findings. Connects only to the CVE service; never to the
+     * analyzed app's servers. Fails safe (returns an informational note) offline.
+     */
+    private fun cveEnrichment(pkg: String, components: List<DetectedComponent>): List<WebFinding> {
+        if (components.isEmpty()) return emptyList()
+        val result = runCatching { cveClient.lookupAll(components) }.getOrNull()
+            ?: return emptyList()
+        val out = mutableListOf<WebFinding>()
+        if (!result.online) {
+            out += WebFinding(
+                code = "apk-cve-offline",
+                title = "CVE lookup skipped (offline)",
+                affected = pkg,
+                detectionMethod = "Online CVE database (OSV.dev)",
+                evidence = "Could not reach the CVE database; ${components.size} detected component(s) were not checked for known vulnerabilities.",
+                severity = Severity.INFO,
+                confidence = Confidence.LOW,
+                verification = VerificationStatus.INFORMATIONAL,
+                reproduction = "Re-run the scan with an internet connection to enable CVE enrichment.",
+                remediation = "Connect to the internet and re-scan to match bundled libraries against known CVEs."
+            )
+            return out
+        }
+        for (m in result.matches) out += cveFinding(pkg, m)
+        return out
+    }
+
+    private fun cveFinding(pkg: String, m: CveMatch): WebFinding {
+        val lib = m.component
+        val libLabel = lib.name + (lib.version?.let { " v$it" } ?: "")
+        val severity = when (m.severityLabel) {
+            "CRITICAL" -> Severity.CRITICAL
+            "HIGH" -> Severity.HIGH
+            "MODERATE" -> Severity.MEDIUM
+            "LOW" -> Severity.LOW
+            else -> Severity.MEDIUM
+        }
+        val certain = m.versionCertain
+        val ids = m.cveIds.joinToString(", ")
+        return WebFinding(
+            code = "apk-cve-${lib.coordinate}",
+            title = "Known-vulnerable library: $libLabel (${m.count} advisory/advisories)",
+            affected = "$pkg → ${lib.coordinate}",
+            detectionMethod = "Online CVE database (OSV.dev)",
+            evidence = buildString {
+                append("Advisories: ").append(ids)
+                if (m.summary.isNotBlank()) append("\n").append(m.summary)
+                append("\n")
+                append(if (certain) "Matched against the detected version v${lib.version}."
+                       else "Version could not be extracted statically — verify the bundled version against the affected ranges.")
+            },
+            severity = severity,
+            confidence = if (certain) Confidence.HIGH else Confidence.MEDIUM,
+            verification = if (certain) VerificationStatus.CONFIRMED else VerificationStatus.POTENTIAL,
+            reproduction = "Look up ${m.cveIds.firstOrNull() ?: "the advisory"} on osv.dev / nvd.nist.gov and compare with the library version shipped in the APK.",
+            remediation = "Upgrade ${lib.name} to a fixed release (see the advisories), or remove the dependency if unused."
+        )
     }
 
     /** Copies the Uri to [dest], aborting (returns -1) if it exceeds [max] bytes. */

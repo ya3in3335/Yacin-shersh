@@ -25,7 +25,18 @@ data class ApkReport(
     val permissionCount: Int,
     val componentCount: Int,
     val findings: List<WebFinding>,
+    val components: List<DetectedComponent> = emptyList(),
     val error: String? = null
+)
+
+/**
+ * A third-party library detected inside the APK. Fed to the online CVE lookup
+ * (OSV.dev) so the report can flag components with known vulnerabilities.
+ */
+data class DetectedComponent(
+    val name: String,         // human label, e.g. "OkHttp"
+    val coordinate: String,   // OSV Maven coordinate "group:artifact"
+    val version: String?      // extracted version, or null if unknown
 )
 
 /**
@@ -165,6 +176,40 @@ object ApkAnalyzer {
         "Generic hardcoded API key/secret" to Regex("(?i)(api[_-]?key|secret|token|auth)\\s*[=:]\\s*[\"'][0-9A-Za-z_\\-]{12,}[\"']")
     )
 
+    /**
+     * Third-party libraries we can recognize from DEX type descriptors, mapped to
+     * their OSV Maven coordinate for an online CVE lookup. A version regex is used
+     * when the library embeds its version as a readable string (best-effort).
+     */
+    private data class ComponentSig(
+        val marker: String, val name: String, val coordinate: String, val versionRegex: Regex? = null
+    )
+
+    private val COMPONENT_SIGNATURES = listOf(
+        ComponentSig("okhttp3/OkHttpClient", "OkHttp", "com.squareup.okhttp3:okhttp",
+            Regex("""okhttp/(\d+\.\d+\.\d+)""")),
+        ComponentSig("okio/BufferedSource", "Okio", "com.squareup.okio:okio"),
+        ComponentSig("retrofit2/Retrofit", "Retrofit", "com.squareup.retrofit2:retrofit"),
+        ComponentSig("com/google/gson/Gson", "Gson", "com.google.code.gson:gson"),
+        ComponentSig("com/fasterxml/jackson/databind/ObjectMapper", "Jackson Databind",
+            "com.fasterxml.jackson.core:jackson-databind"),
+        ComponentSig("org/bouncycastle/jce/provider/BouncyCastleProvider", "Bouncy Castle",
+            "org.bouncycastle:bcprov-jdk15on"),
+        ComponentSig("org/apache/commons/collections4", "Apache Commons Collections 4",
+            "org.apache.commons:commons-collections4"),
+        ComponentSig("org/apache/commons/collections/", "Apache Commons Collections",
+            "commons-collections:commons-collections"),
+        ComponentSig("com/bumptech/glide/Glide", "Glide", "com.github.bumptech.glide:glide"),
+        ComponentSig("com/squareup/picasso/Picasso", "Picasso", "com.squareup.picasso:picasso"),
+        ComponentSig("io/netty/channel/Channel", "Netty", "io.netty:netty-all"),
+        ComponentSig("org/apache/cordova/CordovaActivity", "Apache Cordova", "org.apache.cordova:framework"),
+        ComponentSig("net/sqlcipher/database/SQLiteDatabase", "SQLCipher", "net.zetetic:android-database-sqlcipher"),
+        ComponentSig("com/google/android/exoplayer2/ExoPlayer", "ExoPlayer",
+            "com.google.android.exoplayer:exoplayer"),
+        ComponentSig("org/jsoup/Jsoup", "jsoup", "org.jsoup:jsoup"),
+        ComponentSig("com/google/common/collect/ImmutableList", "Guava", "com.google.guava:guava")
+    )
+
     // Cloud storage / backend hosts worth flagging as an attack-surface map.
     private val CLOUD_HOST_HINTS = listOf(
         "firebaseio.com", "firebasedatabase.app", "s3.amazonaws.com", "amazonaws.com",
@@ -191,11 +236,12 @@ object ApkAnalyzer {
         val findings = mutableListOf<WebFinding>()
         val pkg = info.packageName ?: "(unknown)"
 
+        val components = mutableListOf<DetectedComponent>()
         manifestFindings(appInfo, pkg, findings)
         permissionFindings(info, pkg, findings)
         signingFindings(info, pkg, findings)
         val componentCount = componentFindings(info, pkg, findings)
-        dexFindings(apk, pkg, findings)
+        dexFindings(apk, pkg, findings, components)
 
         return ApkReport(
             ok = true,
@@ -206,7 +252,8 @@ object ApkAnalyzer {
             targetSdk = appInfo?.targetSdkVersion ?: 0,
             permissionCount = info.requestedPermissions?.size ?: 0,
             componentCount = componentCount,
-            findings = findings
+            findings = findings,
+            components = components
         )
     }
 
@@ -303,7 +350,10 @@ object ApkAnalyzer {
         return activities.size + services.size + receivers.size + providers.size
     }
 
-    private fun dexFindings(apk: File, pkg: String, out: MutableList<WebFinding>) {
+    private fun dexFindings(
+        apk: File, pkg: String, out: MutableList<WebFinding>,
+        componentsOut: MutableList<DetectedComponent>
+    ) {
         runCatching {
             ZipFile(apk).use { zip ->
                 if (zip.size() > MAX_ENTRIES) return
@@ -311,6 +361,7 @@ object ApkAnalyzer {
                 val indicatorHits = linkedMapOf<String, String>()      // needle -> context snippet
                 val secretHits = linkedMapOf<String, MutableList<String>>() // label -> redacted samples
                 val endpoints = linkedSetOf<String>()                  // discovered server URLs
+                val components = linkedMapOf<String, DetectedComponent>() // coordinate -> component
                 val entries = zip.entries()
                 while (entries.hasMoreElements()) {
                     val e = entries.nextElement()
@@ -334,10 +385,27 @@ object ApkAnalyzer {
                                 if (bucket.size < 3) bucket.add(redact(m.value))
                             }
                         }
+                        for (sig in COMPONENT_SIGNATURES) {
+                            if (components.containsKey(sig.coordinate)) continue
+                            if (text.contains(sig.marker)) {
+                                val version = sig.versionRegex?.find(text)?.groupValues?.getOrNull(1)
+                                components[sig.coordinate] = DetectedComponent(sig.name, sig.coordinate, version)
+                            }
+                        }
                         URL_REGEX.findAll(text).forEach { m ->
                             if (endpoints.size < MAX_ENDPOINTS) endpoints.add(m.value.take(160))
                         }
                     }
+                }
+                componentsOut += components.values
+                if (components.isNotEmpty()) {
+                    out += f("apk-components", "Third-party libraries detected (${components.size})", pkg,
+                        "DEX type-descriptor fingerprinting",
+                        components.values.joinToString("  |  ") {
+                            it.name + (it.version?.let { v -> " v$v" } ?: " (version unknown)")
+                        }.take(900),
+                        Severity.INFO, VerificationStatus.INFORMATIONAL,
+                        "These components are checked online against the CVE database (OSV) for known vulnerabilities.")
                 }
 
                 // Vulnerability-class indicators, with severity escalation on correlation.
