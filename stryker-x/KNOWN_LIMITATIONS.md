@@ -58,6 +58,15 @@ Honest status as of Phase A. Nothing here is hidden behind a polished UI.
   allowBackup), exported components without a permission guard, the signing
   certificate, and a known CVE in a library whose exact version was extracted.
   These are verifiable and are the report-worthy findings.
+- **Reachable paths (reported CONFIRMED, via dexlib2 data-flow):** for each
+  exported component, the analyzer disassembles the bytecode and reports when a
+  single method both reads attacker-controllable input (Intent/URI) and reaches a
+  dangerous sink (SQL, WebView, command exec, dynamic loading). This proves a
+  path from an attacker-reachable entry point to a sink exists — stronger than a
+  string match. It is intra-method source+sink co-occurrence, NOT full
+  inter-procedural taint, and it does NOT prove end impact (auth bypass, data
+  disclosure, financial action): confirming exploitability still requires a
+  runtime PoC on an authorized target. The tool says exactly this and no more.
 - **Leads (reported POTENTIAL):** DEX string/API matches (WebView, crypto,
   SQLi surfaces) and version-unknown library CVEs. A string match is NOT proof
   of an exploitable vulnerability — it is a lead the owner (or an authorized

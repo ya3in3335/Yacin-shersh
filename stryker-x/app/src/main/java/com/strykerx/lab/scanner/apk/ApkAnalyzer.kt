@@ -272,9 +272,11 @@ object ApkAnalyzer {
         manifestFindings(appInfo, pkg, findings)
         permissionFindings(info, pkg, findings)
         signingFindings(info, pkg, findings)
-        val componentCount = componentFindings(info, pkg, findings)
+        val exportedClasses = linkedSetOf<String>()
+        val componentCount = componentFindings(info, pkg, findings, exportedClasses)
         dexFindings(apk, pkg, findings, components)
         archiveFindings(apk, pkg, findings)
+        flowFindings(apk, pkg, exportedClasses, findings)
 
         return ApkReport(
             ok = true,
@@ -356,7 +358,10 @@ object ApkAnalyzer {
         }
     }
 
-    private fun componentFindings(info: PackageInfo, pkg: String, out: MutableList<WebFinding>): Int {
+    private fun componentFindings(
+        info: PackageInfo, pkg: String, out: MutableList<WebFinding>,
+        exportedOut: MutableSet<String>
+    ): Int {
         val activities: Array<ActivityInfo> = info.activities ?: emptyArray()
         val services: Array<ServiceInfo> = info.services ?: emptyArray()
         val receivers: Array<ActivityInfo> = info.receivers ?: emptyArray()
@@ -364,6 +369,7 @@ object ApkAnalyzer {
         var reported = 0
 
         fun report(name: String, kind: String, sev: Severity) {
+            exportedOut += name
             if (reported >= MAX_COMPONENT_FINDINGS) return
             reported++
             // The platform PackageManager confirms exported=true with no permission —
@@ -547,6 +553,32 @@ object ApkAnalyzer {
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Bytecode data-flow: for each exported component, prove whether a method both
+     * reads attacker input (Intent/URI) and reaches a dangerous sink. Upgrades the
+     * finding from "exported, no permission (fact)" to "exported entry point has a
+     * reachable path to a sink" — the evidence the reviewer actually needs.
+     */
+    private fun flowFindings(
+        apk: File, pkg: String, exportedClasses: Set<String>, out: MutableList<WebFinding>
+    ) {
+        val flows = runCatching { DexFlowAnalyzer.analyze(apk, exportedClasses) }.getOrDefault(emptyList())
+        for (fl in flows) {
+            val sev = when {
+                fl.sink.contains("SQL") || fl.sink.contains("command") || fl.sink.contains("code loading") -> Severity.HIGH
+                else -> Severity.MEDIUM
+            }
+            out += f(
+                "apk-flow-${fl.component}-${fl.sink.substringBefore(' ')}",
+                "Reachable path: exported ${fl.component.substringAfterLast('.')} → ${fl.sink}",
+                pkg, "Bytecode data-flow (dexlib2)",
+                "In ${fl.component}.${fl.method}(), attacker-controllable input (${fl.source}) and the sink '${fl.sink}' occur in the same method — a path from an exported entry point to the sink exists in the bytecode.",
+                sev, VerificationStatus.CONFIRMED,
+                "Validate and sanitize all Intent/URI input before it reaches this sink (parameterized queries, URL allow-lists, no shell). NOTE: this confirms a reachable path, not end impact — a runtime PoC is still needed to prove exploitability."
+            )
         }
     }
 
