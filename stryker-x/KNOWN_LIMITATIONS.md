@@ -13,6 +13,11 @@ Honest status as of Phase A. Nothing here is hidden behind a polished UI.
   parser) for package/version/SDK, permissions and exported components; DEX files
   get a bounded (25 MB) string scan for risky API/secret indicators. Findings are
   persisted and scored like web findings.
+  It can also analyze apps already INSTALLED on the device: the user picks one
+  from a searchable list and it is analyzed in place from its on-device APK path
+  (no copy, never deleted). Listing installed apps needs the QUERY_ALL_PACKAGES
+  permission (fine for a sideloaded auditing tool; Google Play restricts it).
+  Some protected apps' base APKs may not be readable; those report a clear error.
   Caveats: uses `PackageManager` rather than a hand-written AXML parser; the DEX
   pass is a bounded string scan, NOT full decompilation; intent-filter-implied
   exports rely on the platform's computed `exported` flag; certificate-chain

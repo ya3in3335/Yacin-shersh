@@ -35,21 +35,40 @@ class ApkScanOrchestrator(
     private val findingDao: FindingDao,
     private val errorLogDao: ErrorLogDao
 ) {
+    /** Analyze an imported APK (content Uri). The copy is deleted afterwards. */
     suspend fun analyze(uri: Uri): ApkScanOutcome = withContext(Dispatchers.IO) {
         val cache = File(appContext.cacheDir, "apk-import").apply { mkdirs() }
         val apk = File(cache, "import-${System.currentTimeMillis()}.apk")
-        try {
-            val copied = copyBounded(uri, apk, ApkAnalyzer.MAX_APK_BYTES)
-            if (copied < 0) {
-                return@withContext ApkScanOutcome(
-                    null, null,
-                    "File is too large (limit ${ApkAnalyzer.MAX_APK_BYTES / (1024 * 1024)} MB) or could not be read."
-                )
-            }
+        val copied = copyBounded(uri, apk, ApkAnalyzer.MAX_APK_BYTES)
+        if (copied < 0) {
+            runCatching { apk.delete() }
+            return@withContext ApkScanOutcome(
+                null, null,
+                "File is too large (limit ${ApkAnalyzer.MAX_APK_BYTES / (1024 * 1024)} MB) or could not be read."
+            )
+        }
+        analyzeFile(apk, deleteAfter = true)
+    }
 
+    /** Lists installed apps the user can pick for analysis. */
+    suspend fun installedApps(): List<InstalledApp> = withContext(Dispatchers.IO) {
+        InstalledApps.list(appContext)
+    }
+
+    /** Analyze an installed app by its on-device APK path (no copy needed). */
+    suspend fun analyzeInstalled(sourceDir: String): ApkScanOutcome = withContext(Dispatchers.IO) {
+        val apk = File(sourceDir)
+        if (!apk.exists() || !apk.canRead()) {
+            return@withContext ApkScanOutcome(null, null, "Cannot read the app's APK (protected or unavailable).")
+        }
+        analyzeFile(apk, deleteAfter = false)
+    }
+
+    private suspend fun analyzeFile(apk: File, deleteAfter: Boolean): ApkScanOutcome {
+        try {
             val report = ApkAnalyzer.analyze(appContext, apk)
             if (!report.ok) {
-                return@withContext ApkScanOutcome(null, report, report.error ?: "Analysis failed.")
+                return ApkScanOutcome(null, report, report.error ?: "Analysis failed.")
             }
 
             val now = System.currentTimeMillis()
@@ -96,12 +115,13 @@ class ApkScanOrchestrator(
                     completedChecks = 1, checkpoint = null
                 )
             )
-            ApkScanOutcome(sessionId, report, "Analysis complete: ${report.findings.size} finding(s).")
+            return ApkScanOutcome(sessionId, report, "Analysis complete: ${report.findings.size} finding(s).")
         } catch (t: Throwable) {
             errorLogDao.insert(ErrorLogEntity(sessionId = null, message = t.message ?: t.javaClass.simpleName, createdAt = System.currentTimeMillis()))
-            ApkScanOutcome(null, null, "Analysis error: ${t.message}")
+            return ApkScanOutcome(null, null, "Analysis error: ${t.message}")
         } finally {
-            runCatching { apk.delete() }
+            // Only delete our own cache copy, never an installed app's real APK.
+            if (deleteAfter) runCatching { apk.delete() }
         }
     }
 

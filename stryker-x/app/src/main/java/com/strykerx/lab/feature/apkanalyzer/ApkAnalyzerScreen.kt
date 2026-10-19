@@ -2,8 +2,10 @@ package com.strykerx.lab.feature.apkanalyzer
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -12,15 +14,20 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Android
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -35,9 +42,8 @@ import com.strykerx.lab.di.StrykerViewModelFactory
 fun ApkAnalyzerScreen(factory: StrykerViewModelFactory) {
     val vm: ApkAnalyzerViewModel = viewModel(factory = factory)
     val state by vm.state.collectAsStateWithLifecycle()
+    var query by remember { mutableStateOf("") }
 
-    // Storage Access Framework: pick any file; APKs are application/vnd.android.package-archive,
-    // but many providers report octet-stream, so accept all and validate by parsing.
     val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri -> uri?.let(vm::analyze) }
@@ -48,18 +54,60 @@ fun ApkAnalyzerScreen(factory: StrykerViewModelFactory) {
     ) {
         ScreenHeader("APK Analyzer", "Offline static analysis — the app is never executed")
 
-        Button(
-            onClick = { picker.launch(arrayOf("application/vnd.android.package-archive", "application/octet-stream", "*/*")) },
-            enabled = !state.analyzing,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Icon(Icons.Filled.Android, contentDescription = null)
-            Text("  " + if (state.analyzing) "Analyzing…" else "Import & analyze APK",
-                fontWeight = FontWeight.Bold)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = { picker.launch(arrayOf("application/vnd.android.package-archive", "application/octet-stream", "*/*")) },
+                enabled = !state.analyzing,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(Icons.Filled.Android, contentDescription = null)
+                Text("  Import file", fontWeight = FontWeight.Bold)
+            }
+            OutlinedButton(
+                onClick = vm::loadInstalledApps,
+                enabled = !state.analyzing && !state.loadingApps,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(Icons.Filled.PhoneAndroid, contentDescription = null)
+                Text("  Installed apps", fontWeight = FontWeight.Bold)
+            }
         }
 
-        if (state.analyzing) {
-            CircularProgressIndicator(Modifier.size(24.dp))
+        if (state.analyzing || state.loadingApps) {
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                CircularProgressIndicator(Modifier.size(22.dp))
+                Text(if (state.analyzing) "Analyzing…" else "Loading installed apps…",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+            }
+        }
+
+        // Installed-apps picker (shown until a scan runs).
+        if (state.installedApps.isNotEmpty() && state.report == null && !state.analyzing) {
+            OutlinedTextField(
+                value = query, onValueChange = { query = it },
+                label = { Text("Search apps (${state.installedApps.size})") },
+                singleLine = true, modifier = Modifier.fillMaxWidth()
+            )
+            val filtered = state.installedApps.filter {
+                query.isBlank() || it.label.contains(query, true) || it.packageName.contains(query, true)
+            }
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                items(filtered) { app ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth().clickable { vm.analyzeInstalled(app) },
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(Modifier.padding(12.dp)) {
+                            Text(app.label + if (app.isSystem) "  · system" else "",
+                                color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Medium)
+                            Text(app.packageName, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+            return@Column
         }
 
         state.report?.takeIf { it.ok }?.let { r ->
