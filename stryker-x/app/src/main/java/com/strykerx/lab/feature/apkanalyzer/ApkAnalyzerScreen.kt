@@ -15,6 +15,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -29,19 +31,26 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.strykerx.lab.core.i18n.LocalAppLanguage
+import com.strykerx.lab.core.i18n.t
 import com.strykerx.lab.core.ui.components.FindingCard
 import com.strykerx.lab.core.ui.components.ScreenHeader
+import com.strykerx.lab.feature.reports.ReportBuilder
+import com.strykerx.lab.feature.reports.ReportSharer
 import com.strykerx.lab.di.StrykerViewModelFactory
 
 @Composable
 fun ApkAnalyzerScreen(factory: StrykerViewModelFactory) {
     val vm: ApkAnalyzerViewModel = viewModel(factory = factory)
     val state by vm.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val lang = LocalAppLanguage.current
     var query by remember { mutableStateOf("") }
 
     val picker = rememberLauncherForActivityResult(
@@ -131,6 +140,36 @@ fun ApkAnalyzerScreen(factory: StrykerViewModelFactory) {
         if (state.findings.isEmpty() && state.report?.ok == true) {
             Text("No static findings — the package looks clean on the checks performed.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+        }
+
+        // Report actions — available once a scan has produced a report.
+        state.report?.takeIf { it.ok }?.let { r ->
+            Button(
+                onClick = {
+                    ReportSharer.shareText(
+                        context, "AI security report",
+                        ReportBuilder.aiPrompt(r.packageName, state.findings)
+                    )
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Icon(Icons.Filled.SmartToy, null); Text("  " + t("web_send_ai", lang)) }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = {
+                        ReportSharer.shareText(context, "Security report",
+                            ReportBuilder.markdown(r.packageName, state.findings))
+                    },
+                    modifier = Modifier.weight(1f)
+                ) { Text(t("web_share", lang)) }
+                OutlinedButton(
+                    onClick = {
+                        ReportSharer.shareFile(context, "cherlogons-apk-report.md",
+                            ReportBuilder.markdown(r.packageName, state.findings))
+                    },
+                    modifier = Modifier.weight(1f)
+                ) { Text(t("web_export", lang)) }
+            }
         }
 
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
