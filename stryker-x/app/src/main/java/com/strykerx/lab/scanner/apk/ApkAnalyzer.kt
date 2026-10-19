@@ -567,18 +567,34 @@ object ApkAnalyzer {
     ) {
         val flows = runCatching { DexFlowAnalyzer.analyze(apk, exportedClasses) }.getOrDefault(emptyList())
         for (fl in flows) {
-            val sev = when {
+            val baseSev = when {
                 fl.sink.contains("SQL") || fl.sink.contains("command") || fl.sink.contains("code loading") -> Severity.HIGH
                 else -> Severity.MEDIUM
             }
-            out += f(
-                "apk-flow-${fl.component}-${fl.sink.substringBefore(' ')}",
-                "Reachable path: exported ${fl.component.substringAfterLast('.')} → ${fl.sink}",
-                pkg, "Bytecode data-flow (dexlib2)",
-                "In ${fl.component}.${fl.method}(), attacker-controllable input (${fl.source}) and the sink '${fl.sink}' occur in the same method — a path from an exported entry point to the sink exists in the bytecode.",
-                sev, VerificationStatus.CONFIRMED,
-                "Validate and sanitize all Intent/URI input before it reaches this sink (parameterized queries, URL allow-lists, no shell). NOTE: this confirms a reachable path, not end impact — a runtime PoC is still needed to prove exploitability."
-            )
+            val cls = fl.component.substringAfterLast('.')
+            val chainTxt = fl.chain?.let { " via $it" } ?: ""
+            if (fl.tainted) {
+                // Taint actually reached the sink — a proven value-flow path.
+                out += f(
+                    "apk-taint-${fl.component}-${fl.sink.substringBefore(' ')}",
+                    "Tainted data-flow: exported $cls → ${fl.sink}",
+                    pkg, "Bytecode taint analysis (dexlib2)",
+                    "Attacker-controllable input (${fl.source}) flows through registers into the sink '${fl.sink}' in ${fl.component}.${fl.method}()$chainTxt. The tainted value reaches the sink — a value-flow path exists, not just co-occurrence.",
+                    baseSev, VerificationStatus.CONFIRMED,
+                    "Sanitize/parameterize the input before this sink (bound SQL params, URL allow-lists, no shell, canonicalize paths). NOTE: confirms a value-flow path, not end impact — a runtime PoC is still needed to prove exploitability."
+                )
+            } else {
+                // Source and sink co-occur but taint did not link them — a lead.
+                out += f(
+                    "apk-flow-${fl.component}-${fl.sink.substringBefore(' ')}",
+                    "Possible path: exported $cls has input + ${fl.sink}",
+                    pkg, "Bytecode data-flow (dexlib2)",
+                    "In ${fl.component}.${fl.method}(), attacker-controllable input (${fl.source}) and the sink '${fl.sink}' both occur, but taint tracking did not link them. Review manually.",
+                    if (baseSev == Severity.HIGH) Severity.MEDIUM else Severity.LOW,
+                    VerificationStatus.POTENTIAL,
+                    "Verify whether the input can reach this sink; sanitize/parameterize if so."
+                )
+            }
         }
     }
 

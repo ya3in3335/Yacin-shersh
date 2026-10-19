@@ -58,15 +58,20 @@ Honest status as of Phase A. Nothing here is hidden behind a polished UI.
   allowBackup), exported components without a permission guard, the signing
   certificate, and a known CVE in a library whose exact version was extracted.
   These are verifiable and are the report-worthy findings.
-- **Reachable paths (reported CONFIRMED, via dexlib2 data-flow):** for each
-  exported component, the analyzer disassembles the bytecode and reports when a
-  single method both reads attacker-controllable input (Intent/URI) and reaches a
-  dangerous sink (SQL, WebView, command exec, dynamic loading). This proves a
-  path from an attacker-reachable entry point to a sink exists — stronger than a
-  string match. It is intra-method source+sink co-occurrence, NOT full
-  inter-procedural taint, and it does NOT prove end impact (auth bypass, data
-  disclosure, financial action): confirming exploitability still requires a
-  runtime PoC on an authorized target. The tool says exactly this and no more.
+- **Tainted value-flow (reported CONFIRMED, via dexlib2 taint analysis):** for
+  each exported component, the analyzer disassembles the bytecode and tracks the
+  tainted VALUE from an attacker-controllable source (Intent/URI) through
+  registers — moves, field/array loads, string building, helper calls — and
+  across method calls (bounded inter-procedural, seeding callee parameters). It
+  reports CONFIRMED only when a tainted register is actually passed into a
+  dangerous sink (SQL, WebView, command exec, dynamic loading, intent redirection,
+  file path). When a source and sink co-occur but taint does not link them, it is
+  reported as POTENTIAL instead. This is a lightweight, flow-insensitive register
+  taint with bounded inter-procedural depth — NOT a full path-sensitive solver
+  like FlowDroid, and it over-approximates helper-return taint. It proves a
+  value-flow path from an attacker-reachable entry point to a sink; it does NOT
+  prove end impact (auth bypass, data disclosure, financial action): confirming
+  exploitability still requires a runtime PoC on an authorized target.
 - **Leads (reported POTENTIAL):** DEX string/API matches (WebView, crypto,
   SQLi surfaces) and version-unknown library CVEs. A string match is NOT proof
   of an exploitable vulnerability — it is a lead the owner (or an authorized
