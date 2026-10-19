@@ -36,10 +36,10 @@ data class ApkReport(
 object ApkAnalyzer {
 
     const val MAX_APK_BYTES = 200L * 1024 * 1024       // reject larger uploads
-    private const val MAX_DEX_SCAN_BYTES = 25L * 1024 * 1024
-    private const val MAX_ENTRIES = 20_000
+    private const val MAX_DEX_SCAN_BYTES = 64L * 1024 * 1024   // scan all DEX up to this budget
+    private const val MAX_ENTRIES = 40_000
     private const val MAX_COMPONENT_FINDINGS = 40
-    private const val MAX_ENDPOINTS = 200
+    private const val MAX_ENDPOINTS = 300
 
     private val URL_REGEX = Regex("""https?://[A-Za-z0-9._~:/?#\[\]@!${'$'}&'()*+,;=%-]{3,}""")
 
@@ -56,25 +56,120 @@ object ApkAnalyzer {
         "android.permission.WRITE_SETTINGS", "android.permission.BIND_ACCESSIBILITY_SERVICE"
     )
 
-    // Security-sensitive API/string indicators to look for in DEX strings.
-    private val DEX_INDICATORS = listOf(
-        "addJavascriptInterface" to ("Insecure WebView JS bridge (addJavascriptInterface)" to Severity.MEDIUM),
-        "setAllowFileAccessFromFileURLs" to ("WebView allows file access from file URLs" to Severity.MEDIUM),
-        "setJavaScriptEnabled" to ("WebView JavaScript enabled" to Severity.LOW),
-        "MODE_WORLD_READABLE" to ("World-readable file mode" to Severity.MEDIUM),
-        "MODE_WORLD_WRITEABLE" to ("World-writable file mode" to Severity.HIGH),
-        "ALLOW_ALL_HOSTNAME_VERIFIER" to ("Disabled TLS hostname verification" to Severity.HIGH),
-        "TrustAllCerts" to ("Possible trust-all TLS manager" to Severity.HIGH),
-        "Runtime.getRuntime().exec" to ("Runtime command execution" to Severity.LOW),
-        "DES/" to ("Weak cipher (DES) reference" to Severity.MEDIUM),
-        "ECB" to ("ECB cipher mode reference" to Severity.LOW)
+    /**
+     * Security-sensitive API/string indicators. Each is a concrete, high-value
+     * vulnerability class a reviewer would actually report — CWE-tagged, with the
+     * remediation that closes it. Severity reflects real impact, not just presence.
+     */
+    private data class Indicator(
+        val needle: String, val title: String, val severity: Severity,
+        val cwe: String, val fix: String
     )
 
+    private val DEX_INDICATORS = listOf(
+        // --- WebView / remote-code surface ---
+        Indicator("addJavascriptInterface", "Insecure WebView JavaScript bridge", Severity.HIGH,
+            "CWE-749", "Remove addJavascriptInterface for untrusted content, or gate it to API 17+ with @JavascriptInterface on explicit methods only."),
+        Indicator("setAllowUniversalAccessFromFileURLs", "WebView grants universal access from file URLs", Severity.HIGH,
+            "CWE-200", "Call setAllowUniversalAccessFromFileURLs(false); never load untrusted content with it enabled."),
+        Indicator("setAllowFileAccessFromFileURLs", "WebView allows file access from file URLs", Severity.MEDIUM,
+            "CWE-200", "Disable file-from-file URL access; isolate local HTML from remote content."),
+        Indicator("setWebContentsDebuggingEnabled", "WebView remote debugging enabled", Severity.MEDIUM,
+            "CWE-489", "Guard setWebContentsDebuggingEnabled(true) behind BuildConfig.DEBUG only."),
+        Indicator("setAllowFileAccess", "WebView file access enabled", Severity.LOW,
+            "CWE-200", "Set setAllowFileAccess(false) unless the app must load local files."),
+        Indicator("setJavaScriptEnabled", "WebView JavaScript enabled", Severity.LOW,
+            "CWE-79", "Only enable JavaScript for trusted origins; validate all loaded URLs."),
+        Indicator("onReceivedSslError", "WebView may override SSL error handling", Severity.HIGH,
+            "CWE-295", "Never call handler.proceed() on SSL errors; call handler.cancel()."),
+        // --- TLS / transport ---
+        Indicator("ALLOW_ALL_HOSTNAME_VERIFIER", "Disabled TLS hostname verification", Severity.HIGH,
+            "CWE-295", "Use the default hostname verifier; a MITM can impersonate any host otherwise."),
+        Indicator("AllowAllHostnameVerifier", "Disabled TLS hostname verification", Severity.HIGH,
+            "CWE-295", "Use the default hostname verifier; a MITM can impersonate any host otherwise."),
+        Indicator("TrustAllCerts", "Trust-all TLS certificate manager", Severity.HIGH,
+            "CWE-295", "Remove the trust-all X509TrustManager; rely on the system trust store (optionally pin)."),
+        Indicator("checkClientTrusted", "Custom TrustManager (verify it validates certs)", Severity.MEDIUM,
+            "CWE-295", "Ensure checkServerTrusted/checkClientTrusted actually validate the chain and throw on failure."),
+        Indicator("SSLSocketFactory", "Custom SSLSocketFactory (verify trust config)", Severity.LOW,
+            "CWE-295", "Confirm the socket factory uses a validating trust manager and hostname verifier."),
+        // --- Weak / misused cryptography ---
+        Indicator("AES/ECB", "AES in ECB mode (no semantic security)", Severity.MEDIUM,
+            "CWE-327", "Use AES/GCM/NoPadding (or AES/CBC with a random IV + HMAC); never ECB."),
+        Indicator("DES/", "Weak cipher (DES)", Severity.MEDIUM,
+            "CWE-327", "Replace DES/3DES with AES-GCM."),
+        Indicator("DESede", "Weak cipher (3DES)", Severity.MEDIUM,
+            "CWE-327", "Replace 3DES with AES-GCM."),
+        Indicator("RC4", "Weak stream cipher (RC4)", Severity.MEDIUM,
+            "CWE-327", "Replace RC4 with AES-GCM."),
+        Indicator("MD5", "Weak hash (MD5)", Severity.LOW,
+            "CWE-328", "Use SHA-256+ for integrity; never MD5 for security."),
+        Indicator("getInstance(\"SHA1\")", "Weak hash (SHA-1)", Severity.LOW,
+            "CWE-328", "Use SHA-256 or stronger."),
+        Indicator("SecretKeySpec", "Possible hardcoded symmetric key (SecretKeySpec)", Severity.HIGH,
+            "CWE-321", "Never embed keys in the APK; derive per-device keys in the Android Keystore."),
+        Indicator("PBEKeySpec", "Password-based key derivation (check iterations/salt)", Severity.LOW,
+            "CWE-916", "Use a random per-user salt and high iteration count (PBKDF2 ≥ 120k, or Argon2)."),
+        // --- Local storage exposure ---
+        Indicator("MODE_WORLD_READABLE", "World-readable file/preferences mode", Severity.MEDIUM,
+            "CWE-732", "Use MODE_PRIVATE; other apps can read world-readable data."),
+        Indicator("MODE_WORLD_WRITEABLE", "World-writable file/preferences mode", Severity.HIGH,
+            "CWE-732", "Use MODE_PRIVATE; world-writable data can be tampered with by any app."),
+        Indicator("getExternalStorageDirectory", "Sensitive data may be on shared external storage", Severity.LOW,
+            "CWE-312", "Keep sensitive files in app-private internal storage, not external/shared storage."),
+        // --- Injection surfaces ---
+        Indicator("rawQuery", "Raw SQL query (check for string concatenation → SQLi)", Severity.MEDIUM,
+            "CWE-89", "Use parameterized queries (selectionArgs); never concatenate user input into SQL."),
+        Indicator("execSQL", "Direct SQL execution (check for concatenation → SQLi)", Severity.MEDIUM,
+            "CWE-89", "Use parameterized statements; never build SQL from untrusted strings."),
+        // --- Code execution / dynamic loading ---
+        Indicator("DexClassLoader", "Dynamic DEX/code loading", Severity.MEDIUM,
+            "CWE-494", "Avoid loading external code; if unavoidable, verify a signature before loading."),
+        Indicator("PathClassLoader", "Runtime class loading (verify source integrity)", Severity.LOW,
+            "CWE-494", "Only load code shipped and verified inside the APK."),
+        Indicator("Runtime.getRuntime().exec", "Runtime command execution", Severity.MEDIUM,
+            "CWE-78", "Avoid shell execution; if required, never pass untrusted input and use absolute paths."),
+        Indicator("ProcessBuilder", "Process execution (ProcessBuilder)", Severity.LOW,
+            "CWE-78", "Avoid spawning processes with untrusted arguments."),
+        // --- Intent / component safety ---
+        Indicator("FLAG_MUTABLE", "Mutable PendingIntent (verify intent is fully specified)", Severity.MEDIUM,
+            "CWE-927", "Use FLAG_IMMUTABLE unless mutability is required; always set an explicit component."),
+        Indicator("setComponent", "Implicit→explicit intent handling (verify no redirection)", Severity.LOW,
+            "CWE-926", "Validate the target of any intent built from external input to prevent redirection."),
+        // --- Logging of secrets ---
+        Indicator("Log.d", "Debug logging present (verify no secrets are logged)", Severity.LOW,
+            "CWE-532", "Strip debug logs in release (ProGuard/R8) and never log tokens, PII, or keys.")
+    )
+
+    /**
+     * High-value secret patterns. Hardcoded credentials in an APK are the classic
+     * "profitable" finding — anyone can unzip the APK and read them.
+     */
     private val SECRET_PATTERNS = listOf(
         "AWS access key" to Regex("AKIA[0-9A-Z]{16}"),
+        "AWS secret key (candidate)" to Regex("(?i)aws(.{0,20})?(secret|private).{0,3}['\"=:\\s]([0-9a-zA-Z/+]{40})"),
         "Google API key" to Regex("AIza[0-9A-Za-z_\\-]{35}"),
-        "Private key block" to Regex("-----BEGIN (RSA |EC )?PRIVATE KEY-----"),
-        "Slack token" to Regex("xox[baprs]-[0-9A-Za-z\\-]{10,}")
+        "Google OAuth client secret" to Regex("GOCSPX-[0-9A-Za-z_\\-]{20,}"),
+        "Firebase database URL" to Regex("https://[a-z0-9.-]+\\.firebaseio\\.com"),
+        "Firebase Cloud Messaging / FCM server key" to Regex("AAAA[A-Za-z0-9_\\-]{7}:[A-Za-z0-9_\\-]{140,}"),
+        "Stripe live secret key" to Regex("sk_live_[0-9a-zA-Z]{24,}"),
+        "Stripe live publishable key" to Regex("pk_live_[0-9a-zA-Z]{24,}"),
+        "Twilio API key" to Regex("SK[0-9a-fA-F]{32}"),
+        "SendGrid API key" to Regex("SG\\.[0-9A-Za-z_\\-]{22}\\.[0-9A-Za-z_\\-]{43}"),
+        "Mailgun key" to Regex("key-[0-9a-zA-Z]{32}"),
+        "GitHub token" to Regex("gh[pousr]_[0-9A-Za-z]{36}"),
+        "Slack token" to Regex("xox[baprs]-[0-9A-Za-z\\-]{10,}"),
+        "JSON Web Token (JWT)" to Regex("eyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}"),
+        "Private key block" to Regex("-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"),
+        "Generic hardcoded password" to Regex("(?i)(password|passwd|pwd)\\s*[=:]\\s*[\"'][^\"']{4,}[\"']"),
+        "Generic hardcoded API key/secret" to Regex("(?i)(api[_-]?key|secret|token|auth)\\s*[=:]\\s*[\"'][0-9A-Za-z_\\-]{12,}[\"']")
+    )
+
+    // Cloud storage / backend hosts worth flagging as an attack-surface map.
+    private val CLOUD_HOST_HINTS = listOf(
+        "firebaseio.com", "firebasedatabase.app", "s3.amazonaws.com", "amazonaws.com",
+        "storage.googleapis.com", "blob.core.windows.net", "cloudfront.net",
+        "digitaloceanspaces.com", "firebaseremoteconfig.googleapis.com"
     )
 
     @Suppress("DEPRECATION")
@@ -213,65 +308,92 @@ object ApkAnalyzer {
             ZipFile(apk).use { zip ->
                 if (zip.size() > MAX_ENTRIES) return
                 var scanned = 0L
-                val indicatorSnippets = linkedMapOf<String, String>()  // needle -> context
-                val secretSnippets = linkedMapOf<String, String>()     // label -> redacted context
-                val endpoints = linkedSetOf<String>()                  // discovered server URLs/hosts
+                val indicatorHits = linkedMapOf<String, String>()      // needle -> context snippet
+                val secretHits = linkedMapOf<String, MutableList<String>>() // label -> redacted samples
+                val endpoints = linkedSetOf<String>()                  // discovered server URLs
                 val entries = zip.entries()
                 while (entries.hasMoreElements()) {
                     val e = entries.nextElement()
-                    if (!e.name.endsWith(".dex")) continue
+                    if (!e.name.endsWith(".dex")) continue              // scan ALL dex files, not just the first
                     if (scanned >= MAX_DEX_SCAN_BYTES) break
                     zip.getInputStream(e).use { ins ->
                         val remaining = (MAX_DEX_SCAN_BYTES - scanned).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
                         val bytes = ins.readNBytesCompat(remaining)
                         scanned += bytes.size
                         val text = asciiStrings(bytes)
-                        for ((needle, _) in DEX_INDICATORS) {
-                            if (!indicatorSnippets.containsKey(needle)) {
-                                val idx = text.indexOf(needle)
-                                if (idx >= 0) indicatorSnippets[needle] = snippet(text, idx, needle.length)
+                        for (ind in DEX_INDICATORS) {
+                            if (!indicatorHits.containsKey(ind.needle)) {
+                                val idx = text.indexOf(ind.needle)
+                                if (idx >= 0) indicatorHits[ind.needle] = snippet(text, idx, ind.needle.length)
                             }
                         }
                         for ((label, rx) in SECRET_PATTERNS) {
-                            if (!secretSnippets.containsKey(label)) {
-                                rx.find(text)?.let { m ->
-                                    secretSnippets[label] = m.value.take(10) + "… (redacted)"
-                                }
+                            val bucket = secretHits.getOrPut(label) { mutableListOf() }
+                            if (bucket.size >= 3) continue
+                            rx.findAll(text).forEach { m ->
+                                if (bucket.size < 3) bucket.add(redact(m.value))
                             }
                         }
                         URL_REGEX.findAll(text).forEach { m ->
-                            if (endpoints.size < MAX_ENDPOINTS) endpoints.add(m.value.take(120))
+                            if (endpoints.size < MAX_ENDPOINTS) endpoints.add(m.value.take(160))
                         }
                     }
                 }
-                for ((needle, ctx) in indicatorSnippets) {
-                    val (title, sev) = DEX_INDICATORS.first { it.first == needle }.second
-                    out += f("apk-dex-$needle", "DEX indicator: $title", pkg,
-                        "Bounded DEX string scan",
-                        "Reference to '$needle' in bytecode. Context: …$ctx…",
-                        sev, VerificationStatus.POTENTIAL,
-                        "Review this usage; confirm it is safe in context (a string match is not proof of a vulnerability).")
+
+                // Vulnerability-class indicators, with severity escalation on correlation.
+                val jsBridge = indicatorHits.containsKey("addJavascriptInterface")
+                val jsEnabled = indicatorHits.containsKey("setJavaScriptEnabled")
+                for (ind in DEX_INDICATORS) {
+                    val ctx = indicatorHits[ind.needle] ?: continue
+                    // A JS bridge together with JavaScript enabled is a real remote-code path.
+                    val sev = if (ind.needle == "addJavascriptInterface" && jsEnabled) Severity.CRITICAL else ind.severity
+                    val extra = if (ind.needle == "addJavascriptInterface" && jsEnabled)
+                        " Correlated with setJavaScriptEnabled → exploitable JS→native bridge." else ""
+                    out += f("apk-dex-${ind.needle}", "${ind.title} [${ind.cwe}]", pkg,
+                        "Bounded DEX string scan (all DEX)",
+                        "Reference to '${ind.needle}' in bytecode.$extra Context: …$ctx…",
+                        sev, VerificationStatus.POTENTIAL, ind.fix)
                 }
-                for ((label, ctx) in secretSnippets) {
-                    out += f("apk-dex-secret-$label", "Possible hardcoded secret in DEX: $label", pkg,
-                        "Bounded DEX string scan", "Matched $label pattern (redacted sample: $ctx)",
+
+                // Hardcoded secrets — the high-value, anyone-can-extract finding.
+                for ((label, samples) in secretHits) {
+                    if (samples.isEmpty()) continue
+                    out += f("apk-dex-secret-$label", "Hardcoded secret in APK: $label", pkg,
+                        "Bounded DEX string scan (all DEX)",
+                        "Matched $label (redacted): " + samples.joinToString("  |  "),
                         Severity.HIGH, VerificationStatus.POTENTIAL,
-                        "Remove hardcoded secrets from the app; use secure storage / server-side exchange and rotate if valid.")
+                        "Anyone can unzip the APK and read this. Remove it, move secrets server-side, and ROTATE the exposed credential immediately.")
                 }
+
                 if (endpoints.isNotEmpty()) {
                     val hosts = endpoints.mapNotNull { hostOf(it) }.distinct()
-                    out += f("apk-endpoints", "Network endpoints referenced (${endpoints.size})", pkg,
+                    out += f("apk-endpoints", "Backend attack surface: ${hosts.size} host(s), ${endpoints.size} URL(s)", pkg,
                         "Static DEX URL extraction (no connection made)",
-                        "Hosts: " + hosts.take(25).joinToString(", ").take(600) +
-                            "\nSample URLs: " + endpoints.take(15).joinToString("  |  ").take(900),
+                        "Hosts: " + hosts.take(30).joinToString(", ").take(700) +
+                            "\nSample URLs: " + endpoints.take(20).joinToString("  |  ").take(1100),
                         Severity.INFO, VerificationStatus.INFORMATIONAL,
-                        "These are the servers/URLs the app's code references. Verify each is expected; no request was sent by this scan.")
+                        "These are the servers/URLs the app references — the map to test next (with authorization). No request was sent by this scan.")
+
                     val cleartext = endpoints.filter { it.startsWith("http://") }
                     if (cleartext.isNotEmpty()) {
-                        out += f("apk-cleartext-endpoints", "Cleartext (http://) endpoints referenced in code", pkg,
-                            "Static DEX URL extraction", cleartext.take(10).joinToString("  |  ").take(600),
+                        out += f("apk-cleartext-endpoints", "Cleartext (http://) endpoints referenced in code [CWE-319]", pkg,
+                            "Static DEX URL extraction", cleartext.take(12).joinToString("  |  ").take(700),
                             Severity.MEDIUM, VerificationStatus.POTENTIAL,
-                            "Move these endpoints to HTTPS; cleartext traffic can be intercepted.")
+                            "Move these endpoints to HTTPS; cleartext traffic can be read and modified by a network attacker.")
+                    }
+
+                    // Cloud backends are classic high-value targets (open Firebase DB, public buckets).
+                    val cloud = endpoints.filter { url -> CLOUD_HOST_HINTS.any { url.contains(it, ignoreCase = true) } }
+                    if (cloud.isNotEmpty()) {
+                        val firebase = cloud.any { it.contains("firebaseio.com", true) || it.contains("firebasedatabase.app", true) }
+                        out += f("apk-cloud-backends",
+                            if (firebase) "Firebase database endpoint referenced (test for open read/write)"
+                            else "Cloud storage/backends referenced (test for public access)",
+                            pkg, "Static DEX URL extraction",
+                            cloud.distinct().take(15).joinToString("  |  ").take(900),
+                            Severity.MEDIUM, VerificationStatus.POTENTIAL,
+                            if (firebase) "With authorization, verify the Realtime Database rules are not world-readable/writable (append /.json). Open Firebase DBs are a common high-impact disclosure."
+                            else "With authorization, verify these buckets/CDNs are not publicly listable or writable.")
                     }
                 }
             }
@@ -301,6 +423,13 @@ object ApkAnalyzer {
         val start = (index - 30).coerceAtLeast(0)
         val end = (index + len + 30).coerceAtMost(text.length)
         return text.substring(start, end).replace('\n', ' ').trim()
+    }
+
+    /** Shows just enough of a matched secret to be recognizable, never the whole value. */
+    private fun redact(value: String): String {
+        val v = value.trim()
+        return if (v.length <= 12) v.take(4) + "…(redacted)"
+        else v.take(8) + "…(redacted, ${v.length} chars)"
     }
 
     private fun hostOf(url: String): String? = runCatching {

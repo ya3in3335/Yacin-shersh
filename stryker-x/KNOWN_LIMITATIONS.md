@@ -10,18 +10,30 @@ Honest status as of Phase A. Nothing here is hidden behind a polished UI.
 - **APK Analyzer (Phase C)** — FUNCTIONAL: import an APK via the Storage Access
   Framework; it is copied to cache under a 200 MB cap and never executed. The
   binary manifest is read by the platform `PackageManager` (the authoritative
-  parser) for package/version/SDK, permissions and exported components; DEX files
-  get a bounded (25 MB) string scan for risky API/secret indicators. Findings are
-  persisted and scored like web findings.
+  parser) for package/version/SDK, permissions and exported components; ALL DEX
+  files get a bounded (64 MB budget) string scan for concrete, CWE-tagged
+  vulnerability classes — insecure WebView/JS bridge (escalated to CRITICAL when
+  a JS bridge correlates with JavaScript enabled), trust-all TLS / disabled
+  hostname verification, weak or misused crypto (ECB/DES/3DES/RC4/MD5/SHA-1,
+  hardcoded keys), world-readable/writable storage, SQL-injection surfaces,
+  dynamic code loading, command execution, mutable PendingIntents — plus
+  high-value hardcoded-secret patterns (AWS/Google/Firebase/Stripe/Twilio/
+  SendGrid/GitHub/Slack/JWT/private keys and generic password/api-key literals,
+  redacted in output) and a backend attack-surface map (referenced hosts/URLs,
+  cleartext endpoints, and cloud backends such as Firebase DBs and public
+  buckets flagged for authorized follow-up). Findings are persisted and scored
+  like web findings.
   It can also analyze apps already INSTALLED on the device: the user picks one
   from a searchable list and it is analyzed in place from its on-device APK path
   (no copy, never deleted). Listing installed apps needs the QUERY_ALL_PACKAGES
   permission (fine for a sideloaded auditing tool; Google Play restricts it).
   Some protected apps' base APKs may not be readable; those report a clear error.
   Caveats: uses `PackageManager` rather than a hand-written AXML parser; the DEX
-  pass is a bounded string scan, NOT full decompilation; intent-filter-implied
-  exports rely on the platform's computed `exported` flag; certificate-chain
-  parsing is not done yet.
+  pass is a bounded string scan, NOT full decompilation — a string match is a
+  lead to confirm, not proof, so most DEX findings are reported as POTENTIAL;
+  intent-filter-implied exports rely on the platform's computed `exported` flag;
+  certificate-chain parsing is not done yet. Cloud/Firebase endpoints are only
+  flagged statically — the app never connects to them to confirm exposure.
 - **API Inspector + Network Inspector (Phase D)** — placeholders only.
 - **Reports (Phase E)** — no PDF/HTML/JSON/Markdown/HackerOne export yet.
 - **Scan Orchestrator / WorkManager jobs** — not wired until Phase B.
