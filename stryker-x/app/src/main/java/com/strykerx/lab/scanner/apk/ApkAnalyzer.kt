@@ -53,6 +53,37 @@ object ApkAnalyzer {
     private const val MAX_ENDPOINTS = 300
     private const val MAX_COMPONENTS = 60
 
+    // Full-archive ("unpack the files") analysis budgets.
+    private const val MAX_RES_FILE_BYTES = 2L * 1024 * 1024
+    private const val MAX_RES_TOTAL_BYTES = 48L * 1024 * 1024
+    private const val MAX_RES_FILES = 4000
+    private const val MAX_SO_SCAN_BYTES = 4L * 1024 * 1024
+
+    // Text-like packaged files we read and scan for secrets/endpoints.
+    private val TEXT_EXT = setOf(
+        "json", "xml", "txt", "properties", "js", "html", "htm", "css", "yaml", "yml",
+        "cfg", "conf", "ini", "env", "pem", "key", "sql", "csv", "md", "map", "graphql", "proto", "plist"
+    )
+
+    // Known commercial packers/protectors, keyed by a native-lib name fragment.
+    private val PACKER_LIBS = linkedMapOf(
+        "libjiagu" to "Qihoo 360 Jiagu",
+        "libsecexe" to "Bangcle / SecNeo",
+        "libsecmain" to "Bangcle / SecNeo",
+        "libSecShell" to "Bangcle",
+        "libDexHelper" to "SecNeo / APKProtect",
+        "libprotectClass" to "Baidu protect",
+        "libnqshield" to "NetQin shield",
+        "libtup" to "Tencent",
+        "libtersafe" to "Tencent",
+        "libshella" to "Tencent Legu",
+        "libshellx" to "Tencent Legu",
+        "libexec" to "Ijiami",
+        "libexecmain" to "Ijiami",
+        "libddog" to "Ijiami",
+        "libmobisec" to "Alibaba"
+    )
+
     private val URL_REGEX = Regex("""https?://[A-Za-z0-9._~:/?#\[\]@!${'$'}&'()*+,;=%-]{3,}""")
 
     // Permissions worth calling out (classic "dangerous"/powerful set).
@@ -243,6 +274,7 @@ object ApkAnalyzer {
         signingFindings(info, pkg, findings)
         val componentCount = componentFindings(info, pkg, findings)
         dexFindings(apk, pkg, findings, components)
+        archiveFindings(apk, pkg, findings)
 
         return ApkReport(
             ok = true,
@@ -514,6 +546,152 @@ object ApkAnalyzer {
                             else "With authorization, verify these buckets/CDNs are not publicly listable or writable.")
                     }
                 }
+            }
+        }
+    }
+
+    /**
+     * Unpacks the APK archive and analyzes EVERY file inside it — not just DEX.
+     * Reads text-like resources/assets for secrets and endpoints (API keys and
+     * Firebase configs often live in assets, not code), inspects native .so
+     * libraries, detects embedded executable payloads (secondary dex/apk/jar) and
+     * commercial packers/protectors, and reports an archive inventory. Fully
+     * offline and bounded in memory.
+     */
+    private fun archiveFindings(apk: File, pkg: String, out: MutableList<WebFinding>) {
+        runCatching {
+            ZipFile(apk).use { zip ->
+                if (zip.size() > MAX_ENTRIES) return
+                var total = 0L
+                var files = 0
+                val assetSecrets = linkedMapOf<String, MutableList<String>>()  // label -> samples@path
+                val assetEndpoints = linkedSetOf<String>()
+                val nativeLibs = linkedSetOf<String>()                          // "abi/name.so"
+                val packers = linkedMapOf<String, String>()                     // vendor -> lib
+                val embedded = mutableListOf<String>()                          // suspicious payloads
+                val byExt = HashMap<String, Int>()
+                val dexRoot = Regex("""classes\d*\.dex""")
+
+                val entries = zip.entries()
+                while (entries.hasMoreElements()) {
+                    val e = entries.nextElement()
+                    if (e.isDirectory) continue
+                    val name = e.name
+                    val ext = name.substringAfterLast('.', "").lowercase()
+                    byExt[ext] = (byExt[ext] ?: 0) + 1
+
+                    // Native libraries (and packer detection + bounded string scan).
+                    if (name.startsWith("lib/") && ext == "so") {
+                        val parts = name.split('/')
+                        if (parts.size >= 3) nativeLibs.add(parts[1] + "/" + parts.last())
+                        val base = name.substringAfterLast('/')
+                        for ((frag, vendor) in PACKER_LIBS) if (base.contains(frag, true)) packers.putIfAbsent(vendor, base)
+                        if (total < MAX_RES_TOTAL_BYTES) {
+                            val cap = minOf(MAX_SO_SCAN_BYTES, MAX_RES_TOTAL_BYTES - total)
+                                .coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+                            runCatching {
+                                zip.getInputStream(e).use { ins ->
+                                    val bytes = ins.readNBytesCompat(cap)
+                                    total += bytes.size
+                                    val t = asciiStrings(bytes)
+                                    URL_REGEX.findAll(t).forEach {
+                                        if (assetEndpoints.size < MAX_ENDPOINTS) assetEndpoints.add(it.value.take(160))
+                                    }
+                                }
+                            }
+                        }
+                        continue
+                    }
+
+                    // Embedded executable payloads (a secondary dex/apk/jar outside the
+                    // normal root classesN.dex is a packer/dropper indicator).
+                    val isRootDex = ext == "dex" && !name.contains('/') && dexRoot.matches(name)
+                    if ((ext == "dex" && !isRootDex) || ext == "apk" || ext == "jar") {
+                        if (embedded.size < 30) embedded.add(name.take(120))
+                    }
+
+                    // Text-like resources/assets: scan for secrets + endpoints.
+                    if (ext in TEXT_EXT && files < MAX_RES_FILES && total < MAX_RES_TOTAL_BYTES &&
+                        e.size in 1..MAX_RES_FILE_BYTES
+                    ) {
+                        files++
+                        val cap = minOf(MAX_RES_FILE_BYTES, MAX_RES_TOTAL_BYTES - total)
+                            .coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+                        runCatching {
+                            zip.getInputStream(e).use { ins ->
+                                val bytes = ins.readNBytesCompat(cap)
+                                total += bytes.size
+                                val content = String(bytes, Charsets.UTF_8)
+                                for ((label, rx) in SECRET_PATTERNS) {
+                                    val generic = label.startsWith("Generic")
+                                    val bucket = assetSecrets.getOrPut(label) { mutableListOf() }
+                                    if (bucket.size >= 3) continue
+                                    rx.findAll(content).forEach { m ->
+                                        if (bucket.size >= 3) return@forEach
+                                        if (generic && shannonEntropy(m.value) < 3.4) return@forEach
+                                        bucket.add(redact(m.value) + "  @" + name.takeLast(70))
+                                    }
+                                }
+                                URL_REGEX.findAll(content).forEach {
+                                    if (assetEndpoints.size < MAX_ENDPOINTS) assetEndpoints.add(it.value.take(160))
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // --- Findings ---
+                if (embedded.isNotEmpty()) {
+                    out += f("apk-embedded-payload", "Embedded executable payload(s) in resources (${embedded.size})", pkg,
+                        "Archive inspection", embedded.joinToString("  |  ").take(900),
+                        Severity.HIGH, VerificationStatus.CONFIRMED,
+                        "A secondary dex/apk/jar bundled in assets is a packer/dropper pattern. Verify it is legitimate and not loading unreviewed code at runtime.")
+                }
+                if (packers.isNotEmpty()) {
+                    out += f("apk-packer", "App is packed/protected: ${packers.keys.joinToString(", ")}", pkg,
+                        "Native-library packer fingerprint",
+                        packers.entries.joinToString("  |  ") { "${it.key} (${it.value})" }.take(600),
+                        Severity.MEDIUM, VerificationStatus.CONFIRMED,
+                        "Packed apps hide their real code until runtime, so static analysis sees little. Real code is unpacked in memory — deeper review needs a dynamic/unpacking step.")
+                }
+                for ((label, samples) in assetSecrets) {
+                    if (samples.isEmpty()) continue
+                    out += f("apk-asset-secret-$label", "Hardcoded secret in packaged file: $label", pkg,
+                        "Resource/asset content scan",
+                        "Matched $label (redacted) in bundled file(s): " + samples.joinToString("  |  "),
+                        Severity.HIGH, VerificationStatus.POTENTIAL,
+                        "Secrets in assets are trivially extractable by unzipping the APK. Remove, move server-side, and ROTATE the credential.")
+                }
+                if (assetEndpoints.isNotEmpty()) {
+                    val hosts = assetEndpoints.mapNotNull { hostOf(it) }.distinct()
+                    out += f("apk-asset-endpoints", "Endpoints in packaged files: ${hosts.size} host(s)", pkg,
+                        "Resource/asset + native-lib URL extraction (no connection made)",
+                        "Hosts: " + hosts.take(30).joinToString(", ").take(700) +
+                            "\nSample URLs: " + assetEndpoints.take(20).joinToString("  |  ").take(1000),
+                        Severity.INFO, VerificationStatus.INFORMATIONAL,
+                        "Servers referenced in assets/native libraries (not just code). Verify each is expected.")
+                    val cleartext = assetEndpoints.filter { it.startsWith("http://") }
+                    if (cleartext.isNotEmpty()) {
+                        out += f("apk-asset-cleartext", "Cleartext (http://) endpoints in packaged files [CWE-319]", pkg,
+                            "Resource/asset URL extraction", cleartext.take(12).joinToString("  |  ").take(700),
+                            Severity.MEDIUM, VerificationStatus.POTENTIAL,
+                            "Move these endpoints to HTTPS.")
+                    }
+                }
+                if (nativeLibs.isNotEmpty()) {
+                    val abis = nativeLibs.mapNotNull { it.substringBefore('/').ifBlank { null } }.distinct()
+                    out += f("apk-native-libs", "Native libraries bundled (${nativeLibs.size})", pkg,
+                        "Archive inspection",
+                        "ABIs: " + abis.joinToString(", ") + "\n" + nativeLibs.take(40).joinToString("  |  ").take(900),
+                        Severity.INFO, VerificationStatus.INFORMATIONAL,
+                        "Native code is not covered by the DEX scan; review these libraries separately if in scope.")
+                }
+                val topExt = byExt.entries.sortedByDescending { it.value }.take(12)
+                    .joinToString(", ") { "${it.key.ifBlank { "(none)" }}:${it.value}" }
+                out += f("apk-archive-inventory", "Archive inventory (${byExt.values.sum()} files, $files text scanned)", pkg,
+                    "Archive inspection", "By type → $topExt".take(900),
+                    Severity.INFO, VerificationStatus.INFORMATIONAL,
+                    "Full list of packaged file types. Unusual payloads are flagged separately.")
             }
         }
     }

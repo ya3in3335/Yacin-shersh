@@ -37,6 +37,15 @@ Honest status as of Phase A. Nothing here is hidden behind a polished UI.
   present, which upgrades many library matches from a version-unknown lead to a
   version-exact CONFIRMED CVE.
 
+- **Full-archive file analysis** — the analyzer unpacks the whole APK and scans
+  every packaged file, not just DEX: text resources/assets (.json/.xml/.js/.env/
+  .properties/…) for secrets and endpoints (API keys and Firebase configs often
+  live in assets, not code), native `.so` libraries (string-scanned for URLs),
+  embedded executable payloads (a secondary dex/apk/jar in assets → packer/dropper
+  indicator), commercial packers/protectors (by native-lib fingerprint), plus an
+  archive inventory. Bounded in memory; fully offline. Caveat: native code is only
+  string-scanned, not disassembled; packed apps unpack real code at runtime, so a
+  static pass sees little until a dynamic/unpacking step is added.
 - **Cherlogons Privacy Radar** — our own, in-house tracker/SDK signature engine
   (`TrackerSignatures`). It fingerprints bundled trackers, ad networks, analytics,
   crash, profiling, push and location SDKs from DEX type descriptors, fully
