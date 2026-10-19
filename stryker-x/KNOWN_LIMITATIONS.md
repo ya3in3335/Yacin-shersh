@@ -3,10 +3,18 @@
 Honest status as of Phase A. Nothing here is hidden behind a polished UI.
 
 ## Not yet implemented (planned by phase)
-- **Website Scanner (Phase B)** — FUNCTIONAL (merged from VulnScan): TLS, security headers,
-  exposed files, fingerprint; scope/authorization gate; Room persistence; report + AI share.
-  Still pending: opt-in active tests (reflected-input/XSS, error-based SQLi) on approved
-  targets; CORS deep-dive; true pause/resume (pause currently aborts gracefully).
+- **Website Scanner (Phase B)** — FUNCTIONAL, now a broad passive/config toolkit:
+  TLS, HTTPS redirect, security headers + cookie flags, CSP, CORS, technology
+  fingerprint + risky HTTP methods, WAF detection, SRI, passive recon, robots
+  recon, verbose errors, exposed files (catch-all guarded), security.txt policy,
+  mixed content, sensitive-data exposure (secrets/internal IPs/stack traces/risky
+  comments), form security (insecure action / missing CSRF), sensitive caching,
+  open directory listings, admin/management-interface discovery (incl. exposed
+  .git/actuator), and GraphQL endpoint detection. Scope/authorization gated; Room
+  persistence; correlation/dedup; report + AI share. Opt-in active tests
+  (error/blind SQLi, open-redirect) run only when active testing is authorized.
+  Still pending: reflected-input/XSS active test; true pause/resume (pause
+  currently aborts gracefully).
 - **APK Analyzer (Phase C)** — FUNCTIONAL: import an APK via the Storage Access
   Framework; it is copied to cache under a 200 MB cap and never executed. The
   binary manifest is read by the platform `PackageManager` (the authoritative

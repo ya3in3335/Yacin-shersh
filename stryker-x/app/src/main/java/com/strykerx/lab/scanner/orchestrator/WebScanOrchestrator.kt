@@ -15,17 +15,25 @@ import com.strykerx.lab.core.network.SafeHttp
 import com.strykerx.lab.core.resources.ResourceMonitor
 import com.strykerx.lab.core.resources.ResourceProfile
 import com.strykerx.lab.core.resources.evaluatePause
+import com.strykerx.lab.scanner.web.AdminInterfaceCheck
+import com.strykerx.lab.scanner.web.CacheControlCheck
 import com.strykerx.lab.scanner.web.ContentSecurityCheck
 import com.strykerx.lab.scanner.web.CorrelationEngine
 import com.strykerx.lab.scanner.web.CorsCheck
+import com.strykerx.lab.scanner.web.DirectoryListingCheck
 import com.strykerx.lab.scanner.web.ExposureCheck
 import com.strykerx.lab.scanner.web.FingerprintCheck
+import com.strykerx.lab.scanner.web.FormSecurityCheck
+import com.strykerx.lab.scanner.web.GraphQLCheck
 import com.strykerx.lab.scanner.web.HeaderCheck
 import com.strykerx.lab.scanner.web.HttpsRedirectCheck
 import com.strykerx.lab.scanner.web.InjectionCheck
+import com.strykerx.lab.scanner.web.MixedContentCheck
 import com.strykerx.lab.scanner.web.OpenRedirectCheck
 import com.strykerx.lab.scanner.web.PassiveReconCheck
 import com.strykerx.lab.scanner.web.RobotsReconCheck
+import com.strykerx.lab.scanner.web.SecurityTxtCheck
+import com.strykerx.lab.scanner.web.SensitiveDataCheck
 import com.strykerx.lab.scanner.web.SriCheck
 import com.strykerx.lab.scanner.web.ScopePolicy
 import com.strykerx.lab.scanner.web.ScopeResult
@@ -86,6 +94,14 @@ class WebScanOrchestrator(
         add(RobotsReconCheck())
         add(VerboseErrorCheck())
         add(ExposureCheck())
+        add(SecurityTxtCheck())
+        add(MixedContentCheck())
+        add(SensitiveDataCheck())
+        add(FormSecurityCheck())
+        add(CacheControlCheck())
+        add(DirectoryListingCheck())
+        add(AdminInterfaceCheck())
+        add(GraphQLCheck())
         if (policy.allowActiveTests) {
             add(InjectionCheck())
             add(OpenRedirectCheck())
