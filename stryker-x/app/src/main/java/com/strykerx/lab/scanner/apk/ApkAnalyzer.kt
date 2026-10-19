@@ -39,6 +39,9 @@ object ApkAnalyzer {
     private const val MAX_DEX_SCAN_BYTES = 25L * 1024 * 1024
     private const val MAX_ENTRIES = 20_000
     private const val MAX_COMPONENT_FINDINGS = 40
+    private const val MAX_ENDPOINTS = 200
+
+    private val URL_REGEX = Regex("""https?://[A-Za-z0-9._~:/?#\[\]@!${'$'}&'()*+,;=%-]{3,}""")
 
     // Permissions worth calling out (classic "dangerous"/powerful set).
     private val SENSITIVE_PERMISSIONS = setOf(
@@ -79,7 +82,7 @@ object ApkAnalyzer {
         val pm = context.packageManager
         val flags = PackageManager.GET_PERMISSIONS or PackageManager.GET_ACTIVITIES or
             PackageManager.GET_SERVICES or PackageManager.GET_RECEIVERS or
-            PackageManager.GET_PROVIDERS
+            PackageManager.GET_PROVIDERS or PackageManager.GET_SIGNING_CERTIFICATES
         val info: PackageInfo = pm.getPackageArchiveInfo(apk.absolutePath, flags)
             ?: return ApkReport(
                 ok = false, packageName = "", versionName = "", versionCode = 0,
@@ -95,6 +98,7 @@ object ApkAnalyzer {
 
         manifestFindings(appInfo, pkg, findings)
         permissionFindings(info, pkg, findings)
+        signingFindings(info, pkg, findings)
         val componentCount = componentFindings(info, pkg, findings)
         dexFindings(apk, pkg, findings)
 
@@ -136,12 +140,44 @@ object ApkAnalyzer {
 
     private fun permissionFindings(info: PackageInfo, pkg: String, out: MutableList<WebFinding>) {
         val perms = info.requestedPermissions?.toList() ?: return
+        // Full permission inventory as evidence.
+        out += f("apk-permissions-all", "Declares ${perms.size} permission(s)", pkg,
+            "Manifest permission inventory",
+            perms.joinToString(", ") { it.substringAfterLast('.') }.take(1500),
+            Severity.INFO, VerificationStatus.INFORMATIONAL,
+            "Review the full permission set against what the app actually needs.")
+
         val sensitive = perms.filter { it in SENSITIVE_PERMISSIONS }
         if (sensitive.isNotEmpty()) {
             out += f("apk-permissions", "Requests ${sensitive.size} sensitive permission(s)", pkg,
-                "Manifest permission review", sensitive.joinToString(", ") { it.substringAfterLast('.') }.take(300),
-                Severity.INFO, VerificationStatus.INFORMATIONAL,
+                "Manifest permission review", sensitive.joinToString(", "),
+                Severity.LOW, VerificationStatus.POTENTIAL,
                 "Confirm each powerful permission is actually required and justified.")
+        }
+    }
+
+    private fun signingFindings(info: PackageInfo, pkg: String, out: MutableList<WebFinding>) {
+        val signers = runCatching {
+            info.signingInfo?.apkContentsSigners?.toList().orEmpty()
+        }.getOrDefault(emptyList())
+        if (signers.isEmpty()) return
+        val cf = runCatching { java.security.cert.CertificateFactory.getInstance("X.509") }.getOrNull() ?: return
+        for (sig in signers) {
+            val cert = runCatching {
+                cf.generateCertificate(sig.toByteArray().inputStream()) as java.security.cert.X509Certificate
+            }.getOrNull() ?: continue
+            val subject = cert.subjectDN.name
+            val sha256 = sha256Hex(cert.encoded)
+            val isDebug = subject.contains("Android Debug", ignoreCase = true)
+            out += f(
+                "apk-signer", if (isDebug) "Signed with an Android debug certificate" else "Signing certificate",
+                pkg, "APK signature inspection",
+                "subject=$subject ; SHA-256=$sha256",
+                if (isDebug) Severity.MEDIUM else Severity.INFO,
+                if (isDebug) VerificationStatus.CONFIRMED else VerificationStatus.INFORMATIONAL,
+                if (isDebug) "Debug-signed APKs must not ship to production; re-sign with a release key."
+                else "Record the signer fingerprint; verify it matches the expected publisher."
+            )
         }
     }
 
@@ -177,8 +213,9 @@ object ApkAnalyzer {
             ZipFile(apk).use { zip ->
                 if (zip.size() > MAX_ENTRIES) return
                 var scanned = 0L
-                val hitIndicators = linkedSetOf<String>()
-                val hitSecrets = linkedSetOf<String>()
+                val indicatorSnippets = linkedMapOf<String, String>()  // needle -> context
+                val secretSnippets = linkedMapOf<String, String>()     // label -> redacted context
+                val endpoints = linkedSetOf<String>()                  // discovered server URLs/hosts
                 val entries = zip.entries()
                 while (entries.hasMoreElements()) {
                     val e = entries.nextElement()
@@ -189,26 +226,53 @@ object ApkAnalyzer {
                         val bytes = ins.readNBytesCompat(remaining)
                         scanned += bytes.size
                         val text = asciiStrings(bytes)
-                        for ((needle, meta) in DEX_INDICATORS) {
-                            if (text.contains(needle)) hitIndicators.add(needle)
+                        for ((needle, _) in DEX_INDICATORS) {
+                            if (!indicatorSnippets.containsKey(needle)) {
+                                val idx = text.indexOf(needle)
+                                if (idx >= 0) indicatorSnippets[needle] = snippet(text, idx, needle.length)
+                            }
                         }
                         for ((label, rx) in SECRET_PATTERNS) {
-                            if (rx.containsMatchIn(text)) hitSecrets.add(label)
+                            if (!secretSnippets.containsKey(label)) {
+                                rx.find(text)?.let { m ->
+                                    secretSnippets[label] = m.value.take(10) + "… (redacted)"
+                                }
+                            }
+                        }
+                        URL_REGEX.findAll(text).forEach { m ->
+                            if (endpoints.size < MAX_ENDPOINTS) endpoints.add(m.value.take(120))
                         }
                     }
                 }
-                for (needle in hitIndicators) {
+                for ((needle, ctx) in indicatorSnippets) {
                     val (title, sev) = DEX_INDICATORS.first { it.first == needle }.second
                     out += f("apk-dex-$needle", "DEX indicator: $title", pkg,
-                        "Bounded DEX string scan", "Reference to '$needle' found in bytecode strings",
+                        "Bounded DEX string scan",
+                        "Reference to '$needle' in bytecode. Context: …$ctx…",
                         sev, VerificationStatus.POTENTIAL,
-                        "Review this usage; confirm it is safe in context (pattern match is not proof of a vulnerability).")
+                        "Review this usage; confirm it is safe in context (a string match is not proof of a vulnerability).")
                 }
-                for (label in hitSecrets) {
+                for ((label, ctx) in secretSnippets) {
                     out += f("apk-dex-secret-$label", "Possible hardcoded secret in DEX: $label", pkg,
-                        "Bounded DEX string scan", "Matched $label pattern in bytecode strings",
+                        "Bounded DEX string scan", "Matched $label pattern (redacted sample: $ctx)",
                         Severity.HIGH, VerificationStatus.POTENTIAL,
                         "Remove hardcoded secrets from the app; use secure storage / server-side exchange and rotate if valid.")
+                }
+                if (endpoints.isNotEmpty()) {
+                    val hosts = endpoints.mapNotNull { hostOf(it) }.distinct()
+                    out += f("apk-endpoints", "Network endpoints referenced (${endpoints.size})", pkg,
+                        "Static DEX URL extraction (no connection made)",
+                        "Hosts: " + hosts.take(25).joinToString(", ").take(600) +
+                            "\nSample URLs: " + endpoints.take(15).joinToString("  |  ").take(900),
+                        Severity.INFO, VerificationStatus.INFORMATIONAL,
+                        "These are the servers/URLs the app's code references. Verify each is expected; no request was sent by this scan.")
+                    val cleartext = endpoints.filter { it.startsWith("http://") }
+                    if (cleartext.isNotEmpty()) {
+                        out += f("apk-cleartext-endpoints", "Cleartext (http://) endpoints referenced in code", pkg,
+                            "Static DEX URL extraction", cleartext.take(10).joinToString("  |  ").take(600),
+                            Severity.MEDIUM, VerificationStatus.POTENTIAL,
+                            "Move these endpoints to HTTPS; cleartext traffic can be intercepted.")
+                    }
                 }
             }
         }
@@ -230,6 +294,22 @@ object ApkAnalyzer {
         }
         if (run.length >= minRun) sb.append(run)
         return sb.toString()
+    }
+
+    /** A sanitized context window around a match, for human-readable evidence. */
+    private fun snippet(text: String, index: Int, len: Int): String {
+        val start = (index - 30).coerceAtLeast(0)
+        val end = (index + len + 30).coerceAtMost(text.length)
+        return text.substring(start, end).replace('\n', ' ').trim()
+    }
+
+    private fun hostOf(url: String): String? = runCatching {
+        java.net.URI(url).host
+    }.getOrNull()
+
+    private fun sha256Hex(bytes: ByteArray): String {
+        val d = java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
+        return d.joinToString(":") { "%02X".format(it) }
     }
 
     private fun f(
