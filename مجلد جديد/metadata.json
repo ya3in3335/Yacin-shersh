@@ -1,7 +1,0 @@
-{
-  "name": "JARVIS Advanced Interface",
-  "description": "A high-tech, futuristic HUD inspired by Iron Man's JARVIS AI, powered by Gemini 3 Pro for advanced reasoning and interaction.",
-  "requestFramePermissions": [
-    "microphone"
-  ]
-}

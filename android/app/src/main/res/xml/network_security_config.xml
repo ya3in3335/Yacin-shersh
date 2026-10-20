@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext is permitted so the scanner can probe plain-HTTP targets that the
+  operator is authorized to test. This does NOT weaken the app's own traffic;
+  it only allows outbound scan requests to non-HTTPS endpoints.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

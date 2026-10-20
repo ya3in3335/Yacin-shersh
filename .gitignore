@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Android / Gradle
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+
+# STRYKER X (Android / Gradle)
+stryker-x/.gradle/
+stryker-x/build/
+stryker-x/app/build/
+stryker-x/local.properties
+stryker-x/.idea/
+
+*.apk

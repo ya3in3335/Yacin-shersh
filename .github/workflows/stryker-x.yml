@@ -1,0 +1,55 @@
+name: Build STRYKER X
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "stryker-x/**"
+      - ".github/workflows/stryker-x.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: stryker-x
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Unit tests
+        run: gradle :app:testDebugUnitTest --no-daemon --stacktrace
+
+      - name: Android lint
+        run: gradle :app:lintDebug --no-daemon --stacktrace
+
+      - name: Build debug APK
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: stryker-x-debug-apk
+          path: stryker-x/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stryker-x-test-results
+          path: |
+            stryker-x/app/build/reports/tests/
+            stryker-x/app/build/reports/lint-results-debug.html
+          if-no-files-found: ignore
