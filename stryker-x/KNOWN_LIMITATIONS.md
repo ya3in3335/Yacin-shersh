@@ -13,9 +13,17 @@ Honest status as of Phase A. Nothing here is hidden behind a polished UI.
   .git/actuator), and GraphQL endpoint detection. Scope/authorization gated; Room
   persistence; correlation/dedup; report + AI share. Opt-in active tests
   (error/blind SQLi, open-redirect) run only when active testing is authorized.
-  It also includes our own Nikto-like signature scanner (a curated database of
-  known dangerous files/backups/VCS-CI metadata/secrets, catch-all guarded) and,
-  under the active-testing gate only, an Nmap-like native TCP connect port
+  It also includes our own deep signature scanner (`WebSignatures` +
+  `NiktoSignatureCheck`): an ORIGINAL, clean-room database (~120 signatures across
+  secret files, backups/dumps, VCS metadata, CI/dependency manifests, info
+  disclosure, framework debug/management endpoints — Actuator env/heapdump,
+  Symfony profiler, Laravel Telescope, pprof — search/data consoles, default
+  content and classic CGI scripts), with status/body-marker/header matching and
+  CGI-directory expansion, all catch-all guarded. The database is written from
+  general knowledge and freely-licensed path lists (e.g. SecLists, MIT); it is
+  NOT copied from Nikto, whose test database is separately copyrighted and may not
+  be used outside the Nikto package. It also includes, under the active-testing
+  gate only, an Nmap-like native TCP connect port
   scanner (banner grab + high-risk exposed-service flagging), locked to the
   target host and refusing private/reserved addresses unless internal scope is
   authorized. Both are our own native engines — no nmap/nikto binary is bundled
