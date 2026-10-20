@@ -13,8 +13,14 @@ Honest status as of Phase A. Nothing here is hidden behind a polished UI.
   .git/actuator), and GraphQL endpoint detection. Scope/authorization gated; Room
   persistence; correlation/dedup; report + AI share. Opt-in active tests
   (error/blind SQLi, open-redirect) run only when active testing is authorized.
-  Still pending: reflected-input/XSS active test; true pause/resume (pause
-  currently aborts gracefully).
+  It also includes our own Nikto-like signature scanner (a curated database of
+  known dangerous files/backups/VCS-CI metadata/secrets, catch-all guarded) and,
+  under the active-testing gate only, an Nmap-like native TCP connect port
+  scanner (banner grab + high-risk exposed-service flagging), locked to the
+  target host and refusing private/reserved addresses unless internal scope is
+  authorized. Both are our own native engines — no nmap/nikto binary is bundled
+  or executed. Still pending: reflected-input/XSS active test; true pause/resume
+  (pause currently aborts gracefully).
 - **APK Analyzer (Phase C)** — FUNCTIONAL: import an APK via the Storage Access
   Framework; it is copied to cache under a 200 MB cap and never executed. The
   binary manifest is read by the platform `PackageManager` (the authoritative
@@ -116,12 +122,14 @@ Honest status as of Phase A. Nothing here is hidden behind a polished UI.
 
 ## Deliberate design decisions
 - **No runtime download/execution of third-party tools.** The app never fetches
-  and runs external binaries/scripts (e.g. sqlmap) on the device: that is a
-  supply-chain risk, violates app-store policy, and such tools' full modes
-  perform data extraction / DB takeover (destructive). SQLi detection is
-  implemented natively instead (error-based across many DBMS + boolean-based
-  blind differential), detection-only, opt-in, scope-locked. No time-based
-  (sleep) payloads are sent, to avoid loading the target.
+  and runs external binaries/scripts (e.g. sqlmap, nmap, nikto) on the device:
+  that is a supply-chain risk, violates app-store policy, and those tools need
+  root/raw-sockets (nmap) or a Perl/C runtime (nikto) unavailable on a standard
+  Android device anyway. Instead we reimplement the useful capability NATIVELY in
+  Kotlin: native SQLi detection (error-based across many DBMS + boolean-blind
+  differential, detection-only, opt-in, scope-locked, no time-based payloads); a
+  Nikto-like signature file scanner over SafeHttp; and an Nmap-like TCP
+  connect port scanner (no raw sockets/root), active-gated and scope-locked.
 
 ## Web scanner caveats
 - The TLS protocol/cert probe opens a direct socket with the platform default trust manager;

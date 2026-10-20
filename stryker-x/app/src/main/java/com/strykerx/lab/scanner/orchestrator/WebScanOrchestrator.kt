@@ -29,8 +29,10 @@ import com.strykerx.lab.scanner.web.HeaderCheck
 import com.strykerx.lab.scanner.web.HttpsRedirectCheck
 import com.strykerx.lab.scanner.web.InjectionCheck
 import com.strykerx.lab.scanner.web.MixedContentCheck
+import com.strykerx.lab.scanner.web.NiktoSignatureCheck
 import com.strykerx.lab.scanner.web.OpenRedirectCheck
 import com.strykerx.lab.scanner.web.PassiveReconCheck
+import com.strykerx.lab.scanner.web.PortScanCheck
 import com.strykerx.lab.scanner.web.RobotsReconCheck
 import com.strykerx.lab.scanner.web.SecurityTxtCheck
 import com.strykerx.lab.scanner.web.SensitiveDataCheck
@@ -102,9 +104,11 @@ class WebScanOrchestrator(
         add(DirectoryListingCheck())
         add(AdminInterfaceCheck())
         add(GraphQLCheck())
+        add(NiktoSignatureCheck())
         if (policy.allowActiveTests) {
             add(InjectionCheck())
             add(OpenRedirectCheck())
+            add(PortScanCheck(allowInternal = policy.allowInternalNetwork))
         }
     }
 
