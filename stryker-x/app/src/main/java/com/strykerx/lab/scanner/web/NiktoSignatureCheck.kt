@@ -93,6 +93,7 @@ class NiktoSignatureCheck : WebCheck {
     }
 
     private fun remediationFor(cat: WebSignatures.Cat): String = when (cat) {
+        WebSignatures.Cat.SENSITIVE_FILE -> "Remove this file from the web root or block public access to it."
         WebSignatures.Cat.SECRET -> "Remove this file from the web root and rotate any exposed credential immediately."
         WebSignatures.Cat.BACKUP -> "Delete web-reachable backups/dumps; store them off the web root with access control."
         WebSignatures.Cat.VCS -> "Block access to VCS metadata (deny .git/.svn/.hg) — it can reconstruct source."
